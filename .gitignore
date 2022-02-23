@@ -1,0 +1,5 @@
+.vscode
+/build
+/builddir
+local.sh
+__pycache__
