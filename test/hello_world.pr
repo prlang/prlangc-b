@@ -1,0 +1,6 @@
+void main() {
+    var int lel = 2;
+    var int mamamia = 55 + lel;
+    writeInt(4 + 6 * 3 + 1 + 3 + 5 * 1 + 3);
+    return;
+}

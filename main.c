@@ -109,7 +109,7 @@ int main(int argc, char *argv[]) {
     };
 
     if (cmd.arg == COMPILE) {
-        compile_dir_recursive(directory, argv[cmd.index_src], opt);
+        compile(directory, argv[cmd.index_src], opt);
     }
 
     return 0;

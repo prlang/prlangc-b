@@ -12,8 +12,13 @@
 // DEBUGGING
 struct astnode_debug {
     char *prefix;
-    size_t prefix_length;
+    int prefix_length;
 };
+
+struct astnode_debug init_debug(char *prefix);
+
+void prefix_add(struct astnode_debug *dg);
+void prefix_remove(struct astnode_debug *dg);
 
 enum expr_type {
     EXPR_UNARY,
@@ -55,23 +60,20 @@ struct base_expr;
 
 struct binary_expr {
     struct token_val op;
-    struct expr *left;
-    struct expr *right;
+    struct base_expr *left;
+    struct base_expr *right;
 };
 
 struct unary_expr {
     struct token_val op;
-    struct expr *val;
+    struct base_expr *val;
+    enum unary_type ut;
 };
 
 struct call_expr {
-    struct expr *val;
-    struct expr **arguments;
+    struct base_expr *val;
+    struct base_expr **arguments;
     size_t arg_count;
-};
-
-struct literal {
-    struct token_val val;
 };
 
 struct base_expr {
@@ -79,7 +81,7 @@ struct base_expr {
     union {
         struct binary_expr *binary;
         struct unary_expr *unary;
-        struct literal *val;
+        struct token_val val;
         struct call_expr *call;
     } as;
 };
@@ -92,6 +94,7 @@ struct var_decl {
 
 struct block {
     struct base_stmt **statements;
+    size_t stmts_count;
 };
 
 struct while_stmt {
@@ -101,6 +104,7 @@ struct while_stmt {
 
 struct for_stmt {
     struct base_expr *left;
+    bool left_stmt;
     struct base_expr *med;
     struct base_expr *right;
     struct block* body;
@@ -172,23 +176,25 @@ struct prlang_file {
 };
 
 struct base_expr *init_literal(struct token_val data);
-struct base_expr *init_unary_expr(enum token_type type, struct base_expr *val, enum unary_type ut);
+struct base_expr *init_unary_expr(struct token_val type, struct base_expr *val, enum unary_type ut);
 struct base_expr *init_binary_expr(struct token_val type, struct base_expr *left, struct base_expr *right);
 struct base_expr *init_call_expr(struct base_expr *expr, struct base_expr **arguments, int arguments_cnt);
-struct block *init_block(struct base_stmt **statements);
+struct block *init_block(struct base_stmt **statements, size_t stmts_count);
 struct base_stmt *init_while(struct base_expr *cond, struct block *block_node);
-struct base_stmt *init_for(struct base_expr *left, struct base_expr *med, struct base_expr *right, struct block* block_node);
+struct base_stmt *init_for(struct base_expr *left, bool left_stmt, struct base_expr *med, struct base_expr *right, struct block* block_node);
 struct base_stmt *init_if(struct base_expr **cond, int cond_cnt, struct block **blocks, int block_cnt);
 struct base_stmt *init_var_decl(struct base_expr *val, bool constant, struct token_val type);
 struct base_stmt *init_return_stmt(struct base_expr *val);
 struct function *init_function(struct block *block, struct token_val name, struct token_val type, struct function_arg *arguments, int argument_cnt);
 struct class_member *init_class_method(enum access_modifier access, enum member_type type, struct function *method);
 struct class_member *init_class_property(enum access_modifier access, enum member_type type, struct var_decl *property);
-struct class_decl *init_class(struct token_val name, int method_cnt, struct class_member **methods, int properties_cnt, struct class_member **properties);
+struct class_decl *init_class(struct token_val name, size_t members_cnt, struct class_member **members);
 struct prlang_file *init_prlang_file(struct var_decl **globals, int global_cnt, 
                                 struct function **functions, int function_cnt,
                                 struct class_decl **classes, int class_cnt);
 
 void free_prlang(struct prlang_file *node);
+
+void debug_prlang(struct prlang_file *node, struct astnode_debug *details);
 
 #endif
