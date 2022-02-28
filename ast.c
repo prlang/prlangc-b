@@ -109,7 +109,7 @@ struct base_stmt *init_while(struct base_expr *cond, struct block *block_node) {
     return base;
 }
 
-struct base_stmt *init_for(struct base_expr *left, bool left_stmt, struct base_expr *med, struct base_expr *right, struct block* block_node) {
+struct base_stmt *init_for(void *left, bool left_stmt, struct base_expr *med, struct base_expr *right, struct block* block_node) {
     struct base_stmt* base = malloc(sizeof(struct base_stmt));
     if (!base) {
         printf("[ERROR] Not enough memory\n");
@@ -122,6 +122,7 @@ struct base_stmt *init_for(struct base_expr *left, bool left_stmt, struct base_e
         exit(1);
     }
     node->left = left;
+    node->left_stmt = left_stmt;
     node->med = med;
     node->right = right;
     node->body = block_node;
@@ -189,7 +190,7 @@ struct base_stmt *init_return_stmt(struct base_expr *val) {
     node->val = val;
 
     base->type = STMT_RETURN;
-    base->as.var = node;
+    base->as.rs = node;
     return base;
 }
 

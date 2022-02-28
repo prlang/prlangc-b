@@ -103,7 +103,7 @@ struct while_stmt {
 };
 
 struct for_stmt {
-    struct base_expr *left;
+    void *left;
     bool left_stmt;
     struct base_expr *med;
     struct base_expr *right;
@@ -181,7 +181,7 @@ struct base_expr *init_binary_expr(struct token_val type, struct base_expr *left
 struct base_expr *init_call_expr(struct base_expr *expr, struct base_expr **arguments, int arguments_cnt);
 struct block *init_block(struct base_stmt **statements, size_t stmts_count);
 struct base_stmt *init_while(struct base_expr *cond, struct block *block_node);
-struct base_stmt *init_for(struct base_expr *left, bool left_stmt, struct base_expr *med, struct base_expr *right, struct block* block_node);
+struct base_stmt *init_for(void *left, bool left_stmt, struct base_expr *med, struct base_expr *right, struct block* block_node);
 struct base_stmt *init_if(struct base_expr **cond, int cond_cnt, struct block **blocks, int block_cnt);
 struct base_stmt *init_var_decl(struct base_expr *val, bool constant, struct token_val type);
 struct base_stmt *init_return_stmt(struct base_expr *val);
