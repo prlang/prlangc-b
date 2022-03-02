@@ -145,7 +145,7 @@ static void debug_stmt(struct base_stmt *node, struct astnode_debug *details) {
         {
             printf("%sreturn:\n", details->prefix);
             if (node->as.rs->val) {
-                base_debug(node->as.rs->val, details);
+                debug_expr(node->as.rs->val, details);
             }
             break;
         }

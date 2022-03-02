@@ -1,15 +1,13 @@
 class HelloWorld {
-    private var int lel;
+    public var int lel = 1;
     public void aa(int b) {
 
     }
 }
 
-void main() {
-    var int lel = 2;
+void main(int a) {
+    var HelloWorld world;
+    var int lel = world.lel + a;
     var int mamamia = 55 + lel;
-    for (i = 0; i < 10 ; i++) {
-
-    }
     return;
 }

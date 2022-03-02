@@ -220,7 +220,7 @@ struct class_member *init_class_method(enum access_modifier access, enum member_
     return node;
 }
 
-struct class_member *init_class_property(enum access_modifier access, enum member_type type, struct var_decl *property) {
+struct class_member *init_class_property(enum access_modifier access, enum member_type type, struct base_stmt *property) {
     struct class_member* node = malloc(sizeof(struct class_member));
     if (!node) {
         printf("[ERROR] Not enough memory\n");

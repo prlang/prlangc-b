@@ -6,6 +6,7 @@
 #include "lexer.h"
 #include "ast.h"
 #include "parser.h"
+#include "sema_analysis.h"
 
 void compile_dir_recursive(char *src_dir, char* src_name, struct compiler_opt options) {
 
@@ -31,6 +32,19 @@ void compile(char* src_dir, char* src_name, struct compiler_opt options) {
     struct prlang_file *root = parse_prlang_file(&helper);
 
     if (root == NULL || errors.count > 0) {
+        print_errors(&errors);
+        exit(1);
+    }
+
+
+    struct symbol_table table = init_symbol_table();
+    struct semantic_context ctx = init_semantic(&table, &errors);
+
+    printf("[INFO] Checking types\n");
+
+    prlang_semapass(root, &ctx);
+
+    if (errors.count > 0) {
         print_errors(&errors);
         exit(1);
     }

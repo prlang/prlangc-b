@@ -153,7 +153,7 @@ struct class_member {
     enum member_type type;
     union {
         struct function *method;
-        struct var_decl *property;
+        struct base_stmt *property;
     } as;
 };
 
@@ -187,7 +187,7 @@ struct base_stmt *init_var_decl(struct base_expr *val, bool constant, struct tok
 struct base_stmt *init_return_stmt(struct base_expr *val);
 struct function *init_function(struct block *block, struct token_val name, struct token_val type, struct function_arg *arguments, int argument_cnt);
 struct class_member *init_class_method(enum access_modifier access, enum member_type type, struct function *method);
-struct class_member *init_class_property(enum access_modifier access, enum member_type type, struct var_decl *property);
+struct class_member *init_class_property(enum access_modifier access, enum member_type type, struct base_stmt *property);
 struct class_decl *init_class(struct token_val name, size_t members_cnt, struct class_member **members);
 struct prlang_file *init_prlang_file(struct var_decl **globals, int global_cnt, 
                                 struct function **functions, int function_cnt,

@@ -627,7 +627,7 @@ static struct class_member *parse_class_member(struct parser_helper *helper) {
     struct token_val tok = ACTUAL_TOK();
 
     if (tok.type == TOK_VAR) {
-        struct var_decl *decl = parse_var(helper);
+        struct base_stmt *decl = parse_var(helper);
         if (decl == NULL) {
             return NULL;
         }
