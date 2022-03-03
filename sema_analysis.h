@@ -27,6 +27,9 @@ struct semantic_context {
     char *access_type;
     struct call_expr *call;
 
+    // check code after return statement
+    int return_depth;
+
     struct fun_table *actual_fun;
     char *return_type;
     // for assembly generation

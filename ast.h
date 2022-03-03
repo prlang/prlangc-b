@@ -35,6 +35,7 @@ enum stmt_type {
     STMT_FOR,
     STMT_EXPR,
     STMT_BREAK,
+    STMT_BLOCK,
     STMT_CONTINUE
 };
 
@@ -132,6 +133,7 @@ struct base_stmt {
         struct while_stmt *ws;
         struct for_stmt *fs;
         struct return_stmt *rs;
+        struct block *bl;
     } as;
 };
 

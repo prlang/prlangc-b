@@ -9,5 +9,8 @@ void main(int a) {
     var HelloWorld world;
     var int lel = world.lel + a;
     var int mamamia = 55 + lel;
+    {
+        return;
+    }
     return;
 }

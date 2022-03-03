@@ -470,8 +470,15 @@ static struct base_stmt **parse_statements(struct parser_helper *helper, int *co
             case TOK_LEFT_BRACES:
             {
                 struct block *bl = parse_block(helper);
-                if (bl == NULL) return NULL;
-                add_toarray(&statements, &arr_size, count, bl);
+                if (!bl) return NULL;
+                struct base_stmt *stmt = malloc(sizeof(struct base_stmt*));
+                if (!stmt) {
+                    printf("[ERROR] Not enough memory\n");
+                    exit(1);
+                }
+                stmt->type = STMT_BLOCK;
+                stmt->as.bl = bl;
+                add_toarray(&statements, &arr_size, count, stmt);
                 break;
             }
             case TOK_CONSTANT:
@@ -503,19 +510,19 @@ static struct base_stmt **parse_statements(struct parser_helper *helper, int *co
             }
             case TOK_EXIT:
             default:
-                {
-                    struct base_expr *expr = parse_expr_stmt(helper);
-                    if (expr == NULL) return NULL;
-                    struct base_stmt *stmt = malloc(sizeof(struct base_stmt*));
-                    if (!stmt) {
-                        printf("[ERROR] Not enough memory\n");
-                        exit(1);
-                    }
-                    stmt->type = STMT_EXPR;
-                    stmt->as.expr = expr;
-                    add_toarray(&statements, &arr_size, count, stmt);
-                    break;
+            {
+                struct base_expr *expr = parse_expr_stmt(helper);
+                if (!expr) return NULL;
+                struct base_stmt *stmt = malloc(sizeof(struct base_stmt*));
+                if (!stmt) {
+                    printf("[ERROR] Not enough memory\n");
+                    exit(1);
                 }
+                stmt->type = STMT_EXPR;
+                stmt->as.expr = expr;
+                add_toarray(&statements, &arr_size, count, stmt);
+                break;
+            }
         }
         tok = ACTUAL_TOK();
     }

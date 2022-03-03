@@ -26,6 +26,7 @@ struct semantic_context init_semantic(struct symbol_table *table, struct errors 
     ctx.err = err;
     ctx.actual_offset = 0;
     ctx.actual_depth = 0;
+    ctx.return_depth = -1;
     ctx.loop = false;
     ctx.accessing = false;
     ctx.call = NULL;
@@ -327,6 +328,8 @@ static void sema_pass_var(struct var_decl *node, struct semantic_context *ctx, b
 }
 
 static void sema_pass_return(struct return_stmt *node, struct semantic_context *ctx) {
+    ctx->return_depth = ctx->actual_depth;
+
     if (strcmp(ctx->return_type, "void") == 0) {
         if (node->val) {
             add_error(ctx->err, CREATE_ERROR("return type doesn't match", 0, 0));
@@ -334,19 +337,24 @@ static void sema_pass_return(struct return_stmt *node, struct semantic_context *
         return;
     }
     if (!node->val) {
-        add_error(ctx->err, CREATE_ERROR("return type doesn't matchb", 0, 0));
+        add_error(ctx->err, CREATE_ERROR("return type doesn't match", 0, 0));
         return;
     }
 
     sema_pass_expr(node->val, ctx);
 
     if (strcmp(ctx->return_type, ctx->actual_type) != 0) {
-        add_error(ctx->err, CREATE_ERROR("return type doesn't matchc", 0, 0));
+        add_error(ctx->err, CREATE_ERROR("return type doesn't match", 0, 0));
         return;
     }
 }
 
+static void sema_pass_block(struct block *node, struct semantic_context *ctx);
+
 static void sema_pass_stmt(struct base_stmt *node, struct semantic_context *ctx) {
+    if (ctx->return_depth != -1 && ctx->return_depth >= ctx->actual_depth) {
+        add_error(ctx->err, CREATE_ERROR("statement after return", 0, 0));
+    }
     switch (node->type) {
         case STMT_VAR:
             sema_pass_var(node->as.var, ctx, false);
@@ -356,6 +364,9 @@ static void sema_pass_stmt(struct base_stmt *node, struct semantic_context *ctx)
             break;
         case STMT_EXPR:
             sema_pass_expr(node->as.expr, ctx);
+            break;
+        case STMT_BLOCK:
+            sema_pass_block(node->as.bl, ctx);
             break;
         default:
             break;
@@ -367,6 +378,7 @@ static void sema_pass_block(struct block *node, struct semantic_context *ctx) {
     for (int i = 0 ; i < node->stmts_count ; i++) {
         sema_pass_stmt(node->statements[i], ctx);
     }
+    ctx->return_depth = -1;
     ctx->actual_depth--;
 }
 
