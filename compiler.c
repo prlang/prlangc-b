@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "compiler.h"
+#include "codegenx86.h"
 #include "lexer.h"
 #include "ast.h"
 #include "parser.h"
@@ -17,7 +18,12 @@ void compile(char* src_dir, char* src_name, struct compiler_opt options) {
     printf("[INFO] Initiating compilation...\n");
 
     struct errors errors = init_errors(options.max_errors);
-    struct src_file file = { src_dir, src_name };
+
+    char cpy[strlen(src_dir)];
+    cpy[strlen(src_dir) - 1] = '\0';
+    strncpy(cpy, src_dir, strlen(src_dir));
+
+    struct src_file file = { cpy, src_name };
 
     // tokenize input
     printf("[INFO] Tokenizing characters\n");
@@ -64,6 +70,10 @@ void compile(char* src_dir, char* src_name, struct compiler_opt options) {
         debug_prlang(root, &debug);
     }
 
+    struct prlang_codegen gen = init_codegen(src_dir, "output.asm", &ctx); 
+    prlang_codegen(root, &gen);
+
+    free_codegen(gen);
     free_prlang(root);
     free_lex(&lex);
     free_errors(&errors);

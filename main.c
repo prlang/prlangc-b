@@ -94,9 +94,14 @@ int main(int argc, char *argv[]) {
     struct command_opt cmd = parse(argc, argv);
 
     char directory[DIRECTORY_SIZE];
+    directory[0] = '\0';
 
     // is directory specified in command options
     if (cmd.index_dir != 0) {
+        if (strlen(argv[cmd.index_dir]) >= DIRECTORY_SIZE - 1) {
+            printf("[ERROR] Directory too big\n");
+            exit(1);
+        }
         strcpy(directory, argv[cmd.index_dir]);
     }
     else if (!getcwd(directory, DIRECTORY_SIZE)) {

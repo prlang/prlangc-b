@@ -297,7 +297,7 @@ void tokenize(struct lexer *lex, struct src_file *file) {
     FILE *file_ptr = fopen(strcat(dir, file->src_name), "r");
 
     if (file_ptr == NULL) {
-        printf("[ERROR] Can't open the specified file, error %d\n", errno);
+        printf("[ERROR] Can't open the specified file, error %s\n", strerror(errno));
         exit(1);
     }
 

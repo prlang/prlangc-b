@@ -96,13 +96,16 @@ void *get(struct symbol_hash *hash, char *key, int depth, int arg) {
     for (int i = 0 ; 
         i < hash->capacity 
         && hash->values[index].used 
-        && strcmp(hash->values[index].key, key) != 0
-        && hash->values[index].arg != arg
-        && hash->values[index].depth > depth ; 
+        && (strcmp(hash->values[index].key, key) != 0
+        || hash->values[index].arg != arg
+        || hash->values[index].depth > depth) ; 
         i++) {
             index = (index + 1) & (hash->capacity - 1);
     }
-    if (hash->values[index].used && strcmp(hash->values[index].key, key) == 0 && hash->values[index].depth <= depth) {
+    if (hash->values[index].used 
+        && strcmp(hash->values[index].key, key) == 0 
+        && hash->values[index].arg == arg 
+        && hash->values[index].depth <= depth) {
         return hash->values[index].value;
     }
     return NULL;
@@ -117,10 +120,11 @@ void put(struct symbol_hash *hash, char *key, void *val, int depth, int arg) {
     }
 
     int index = fnv1_hash(key) & (hash->capacity - 1);
-    while (hash->values[index].used 
-            && strcmp(hash->values[index].key, key) != 0
-            && hash->values[index].arg != arg
-            && hash->values[index].depth > depth) {
+    while (hash->values[index].used && (
+                strcmp(hash->values[index].key, key) != 0 
+                || hash->values[index].arg != arg 
+                || hash->values[index].depth != depth)) {
+
         index = (index + 1) & (hash->capacity - 1);
     }
 

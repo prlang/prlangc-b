@@ -10,6 +10,7 @@
 #define INT_OFFSET 4
 #define CHAR_OFFSET 1
 
+// TODO: check main function
 // global context
 struct semantic_context {
     struct symbol_table *table;

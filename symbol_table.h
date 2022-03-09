@@ -11,7 +11,7 @@ struct symbol_val {
     char *type;
     int offset;
     int arg_pos;
-    bool arg;
+    int positive_offset;
     // this is temporal
     // TODO: change to enum
     char modifier;
@@ -33,6 +33,8 @@ struct symbol_hash {
 
 struct fun_table {
     struct symbol_hash symbols;
+    int total_offset;
+    int total_pos_offset;
 };
 
 struct class_table {

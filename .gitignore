@@ -2,4 +2,8 @@
 /build
 /builddir
 local.sh
+local2.sh
 __pycache__
+*.o
+*.asm
+output

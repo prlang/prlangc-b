@@ -76,6 +76,13 @@ static bool check_sym_type(struct symbol_table *table, char *type) {
 // get type given an identifier, search on different places depending on the context
 static char *get_from_ctx(struct semantic_context *ctx, char *name, int depth) {
     void *val;
+    // if is inside any function search it
+    if (ctx->actual_fun) {
+        if ((val = get(&ctx->actual_fun->symbols, name, depth, 0)) != NULL) {
+            struct symbol_val *tmp = (struct symbol_val*) val;
+            return tmp->type;
+        }
+    }
     // search on global variables
     if ((val = get(&ctx->table->global, name, 0, 0)) != NULL) {
         struct symbol_val *tmp = (struct symbol_val*) val;
@@ -92,13 +99,6 @@ static char *get_from_ctx(struct semantic_context *ctx, char *name, int depth) {
         }
         if ((val = get(&ctx->actual->methods, name, 0, 0)) != NULL) {
             return "function";
-        }
-    }
-    // if is inside any function search it
-    if (ctx->actual_fun) {
-        if ((val = get(&ctx->actual_fun->symbols, name, depth, 0)) != NULL) {
-            struct symbol_val *tmp = (struct symbol_val*) val;
-            return tmp->type;
         }
     }
     return NULL;
@@ -162,6 +162,10 @@ static void sema_pass_literal(struct token_val node, struct semantic_context *ct
         }
         // just a function call
         if (ctx->call) {
+            if (strcmp(node.val, "writeInt") == 0) {
+                chk_type_replace(ctx, "void", node.line, node.char_pos);
+                return;
+            }
             if ((val = get(&ctx->table->funcs, node.val, 0, ctx->call->arg_count)) != NULL) {
                 struct function *tmp_fun = (struct function*) val;
                 chk_type_replace(ctx, tmp_fun->type.val, node.line, node.char_pos);
@@ -320,8 +324,8 @@ static void sema_pass_var(struct var_decl *node, struct semantic_context *ctx, b
     struct symbol_val *sym = malloc(sizeof(struct symbol_val));
     sym->type = node->type.val;
     sym->offset = ctx->actual_offset;
-    sym->arg = false;
     sym->arg_pos = 0;
+    sym->positive_offset = 0;
     // no modifier
     sym->modifier = 0;
     put(symbols, name.val, sym, ctx->actual_depth, 0);
@@ -351,6 +355,36 @@ static void sema_pass_return(struct return_stmt *node, struct semantic_context *
 
 static void sema_pass_block(struct block *node, struct semantic_context *ctx);
 
+static void sema_pass_if(struct if_stmt *node, struct semantic_context *ctx) {
+    for (size_t i = 0 ; i < node->body_count ; i++) {
+        if (i < node->cond_count) {
+            sema_pass_expr(node->cond[i], ctx);
+        }
+        sema_pass_block(node->blocks[i], ctx);
+    }
+}
+
+static void sema_pass_for(struct for_stmt *node, struct semantic_context *ctx) {
+    if (node->left_stmt && node->left) {
+        sema_pass_var(((struct base_stmt*) node->left)->as.var, ctx, false);
+    } else {
+        sema_pass_expr(node->left, ctx);
+    }
+    if (node->med) {
+        sema_pass_expr(node->med, ctx);
+    }
+    if (node->right) {
+        sema_pass_expr(node->right, ctx);
+    }
+
+    sema_pass_block(node->body, ctx);
+}
+
+static void sema_pass_while(struct while_stmt *node, struct semantic_context *ctx) {
+    sema_pass_expr(node->cond, ctx);
+    sema_pass_block(node->body, ctx);
+}
+
 static void sema_pass_stmt(struct base_stmt *node, struct semantic_context *ctx) {
     if (ctx->return_depth != -1 && ctx->return_depth >= ctx->actual_depth) {
         add_error(ctx->err, CREATE_ERROR("statement after return", 0, 0));
@@ -368,6 +402,15 @@ static void sema_pass_stmt(struct base_stmt *node, struct semantic_context *ctx)
         case STMT_BLOCK:
             sema_pass_block(node->as.bl, ctx);
             break;
+        case STMT_IF:
+            sema_pass_if(node->as.is, ctx);
+            break;
+        case STMT_WHILE:
+            sema_pass_while(node->as.ws, ctx);
+            break;
+        case STMT_FOR:
+            sema_pass_for(node->as.fs, ctx);
+            break;
         default:
             break;
     }
@@ -384,21 +427,25 @@ static void sema_pass_block(struct block *node, struct semantic_context *ctx) {
 
 static void sema_pass_fun(struct function *node, struct semantic_context *ctx) {
     int arg_offset = 0;
+    int positive_offset = 16;
+    int positive_total = 0;
     for (int i = 0 ; i < node->arg_count ; i++) {
         if (!check_sym_type(ctx->table, node->arguments[i].type.val)) {
             add_error(ctx->err, CREATE_ERROR("this type is not defined in this scope", node->arguments[i].type.line, node->arguments[i].type.char_pos));
             continue;
         }
         struct symbol_val *sym = malloc(sizeof(struct symbol_val));
-        sym->arg = true;
         sym->arg_pos = ctx->actual_fun->symbols.count;
         sym->modifier = 0;
         sym->type = node->arguments[i].type.val;
         if (i < ARG_REGISTER_LIMIT) {
-            sym->offset = 0;
-        } else {
-            sym->offset = arg_offset;
             arg_offset += get_offset(node->arguments[i].type.val);
+            sym->offset = arg_offset;
+        } else {
+            sym->positive_offset = positive_offset;
+            int tmp = 8;
+            positive_offset += tmp;
+            positive_total += tmp;
         }
         if (contains(&ctx->actual_fun->symbols, node->arguments[i].argument.val, 0, 0)) {
             add_error(ctx->err, CREATE_ERROR("argument already defined in this scope", node->arguments[i].argument.line, node->arguments[i].argument.char_pos));
@@ -406,6 +453,8 @@ static void sema_pass_fun(struct function *node, struct semantic_context *ctx) {
         }
         put(&ctx->actual_fun->symbols, node->arguments[i].argument.val, sym, 0, 0);
     }
+    ctx->actual_offset = arg_offset;
+    ctx->actual_fun->total_pos_offset = positive_total;
     sema_pass_block(node->block, ctx);
 }
 
@@ -511,10 +560,16 @@ void prlang_semapass(struct prlang_file *node, struct semantic_context *ctx) {
     // check functions
     for (int i = 0 ; i < node->function_cnt ; i++) {
         struct fun_table *fn = malloc(sizeof(struct fun_table));
+        if (contains(&ctx->table->funcs_code, node->functions[i]->name.val, 0, node->functions[i]->arg_count)) {
+            free(fn);
+            continue;
+        }
         fn->symbols = init_symbol_hash();
         ctx->actual_fun = fn;
         ctx->return_type = node->functions[i]->type.val;
+        put(&ctx->table->funcs_code, node->functions[i]->name.val, fn, 0, node->functions[i]->arg_count);
         sema_pass_fun(node->functions[i], ctx);
+        fn->total_offset = ctx->actual_offset;
         ctx->actual_offset = 0;
     }
     ctx->return_type = NULL;
