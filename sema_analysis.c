@@ -20,8 +20,25 @@
         }                                                                                  \
     } while (0)                                                                            \
 
+static void new_semantic_type(struct semantic_context *ctx, char *type, int offset) {
+    struct semantic_type *typo = malloc(sizeof(struct semantic_type));
+    if (!typo) {
+        printf("[ERROR] Not enough memory\n");
+        exit(1);
+    }
+    typo->id = ctx->type_id++;
+    typo->offset = offset;
+    if (contains(&ctx->types, type, 0, 0)) {
+        printf("[ERROR] UNEXPECTED ERROR\n");
+        return;
+    }
+    put(&ctx->types, type, typo, 0, 0);
+}
+
 struct semantic_context init_semantic(struct symbol_table *table, struct errors *err) {
     struct semantic_context ctx;
+    ctx.types = init_symbol_hash();
+    ctx.type_id = 0;
     ctx.table = table;
     ctx.err = err;
     ctx.actual_offset = 0;
@@ -34,6 +51,10 @@ struct semantic_context init_semantic(struct symbol_table *table, struct errors 
     ctx.access_type = NULL;
     ctx.return_type = NULL;
     ctx.type = NULL;
+
+    // add types
+    new_semantic_type(&ctx, "int", 4);
+
     return ctx;
 }
 
@@ -41,81 +62,68 @@ void free_semantic(struct semantic_context *ctx) {
     free_table(ctx->table);
 }
 
-static int get_offset(char *type) {
-    if (strcmp(type, "int") == 0) {
-        return INT_OFFSET;
+int get_offset(struct semantic_context *ctx, char *type) {
+    if (!contains(&ctx->types, type, 0, 0)) {
+        return 0;
     }
-    else if (strcmp(type, "double") == 0) {
-        return DOUBLE_OFFSET;
-    } 
-    else if (strcmp(type, "char") == 0) {
-        return CHAR_OFFSET;
-    }
-    return POINTER_OFFSET;
+    struct semantic_type *typo = get(&ctx->types, type, 0, 0);
+    return typo->offset;
 }
 
-const char *builtin_types[] = {
-    "function",
-    "int",
-    "string",
-    "double",
-    "bool",
-    "void",
-    "char"
+static bool check_sym_type(struct semantic_context *ctx, char *type) {
+    return contains(&ctx->types, type, 0, 0);
+}
+
+// just for return value from get_from_ctx
+struct return_get_ctx {
+    char *type;
+    int array_dim;
 };
 
-static bool check_sym_type(struct symbol_table *table, char *type) {
-    for (int i = 0 ; i < BUILTIN_TYPES_SIZE ; i++) {
-        if (strcmp(builtin_types[i], type) == 0) {
-            return true;
-        }
-    }
-    return get(&table->classes, type, 0, 0) != NULL;
-}
-
 // get type given an identifier, search on different places depending on the context
-static char *get_from_ctx(struct semantic_context *ctx, char *name, int depth) {
+static struct return_get_ctx get_from_ctx(struct semantic_context *ctx, char *name, int depth) {
     void *val;
     // if is inside any function search it
     if (ctx->actual_fun) {
         if ((val = get(&ctx->actual_fun->symbols, name, depth, 0)) != NULL) {
             struct symbol_val *tmp = (struct symbol_val*) val;
-            return tmp->type;
+            return (struct return_get_ctx) { tmp->type, tmp->array };
         }
     }
     // search on global variables
     if ((val = get(&ctx->table->global, name, 0, 0)) != NULL) {
         struct symbol_val *tmp = (struct symbol_val*) val;
-        return tmp->type;
+        return (struct return_get_ctx) { tmp->type, tmp->array };
     }
     // see if it is a function
     if ((val = get(&ctx->table->funcs, name, 0, 0)) != NULL) {
-        return "function";
+        return (struct return_get_ctx) { "function", 0 };
     }
     if (ctx->actual) {
         if ((val = get(&ctx->actual->properties, name, 0, 0)) != NULL) {
             struct symbol_val *tmp = (struct symbol_val*) val;
-            return tmp->type;
+            return (struct return_get_ctx) { tmp->type, tmp->array };
         }
         if ((val = get(&ctx->actual->methods, name, 0, 0)) != NULL) {
-            return "function";
+            return (struct return_get_ctx) { "function", 0 };
         }
     }
-    return NULL;
+    return (struct return_get_ctx) { NULL, 0 };
 }
 
-static void chk_type_replace(struct semantic_context *ctx, char *val, int line, int char_pos) {
-    if (!check_sym_type(ctx->table, val)) {
+static void chk_type_replace(struct semantic_context *ctx, char *val, int array_dim, int line, int char_pos) {
+    if (!check_sym_type(ctx, val) && strcmp("void", val)) {
         add_error(ctx->err, CREATE_ERROR("this type is not defined in this scope", line, char_pos));
     }
     ctx->actual_type = val;
+    ctx->array_dim = array_dim;
     if (!ctx->access_type && ctx->accessing) {
         ctx->access_type = val;
     }
 }
 
 static void chk_type_replace_class(struct semantic_context *ctx, char *val, int line, int char_pos, int access, int expected_access) {
-    if (!check_sym_type(ctx->table, val)) {
+    if (!check_sym_type(ctx, val) && strcmp("void", val)) {
         add_error(ctx->err, CREATE_ERROR("this type is not defined in this scope", line, char_pos));
     }
     if (access != expected_access) {
@@ -136,6 +144,7 @@ static void sema_pass_literal(struct token_val node, struct semantic_context *ct
             if (!table) {
                 add_error(ctx->err, CREATE_ERROR("can't access a primitive value", node.line, node.char_pos));
                 ctx->accessing = false;
+                ctx->access_type = NULL;
                 return;
             }
             // if is a function call then search for a method
@@ -143,7 +152,7 @@ static void sema_pass_literal(struct token_val node, struct semantic_context *ct
                 if ((val = get(&table->methods, node.val, 0, ctx->call->arg_count)) != NULL) {
                     struct class_member *tmp_sym = (struct class_member*) val;
                     struct function *tmp_fun = (struct function*) tmp_sym->as.method;
-                    chk_type_replace_class(ctx, tmp_fun->type.val, node.line, node.char_pos, tmp_sym->access, PUBLIC_MOD);
+                    chk_type_replace_class(ctx, tmp_fun->type->type.val, node.line, node.char_pos, tmp_sym->access, PUBLIC_MOD);
                     return;
                 }
                 add_error(ctx->err, CREATE_ERROR("this method doesn't exist", node.line, node.char_pos));
@@ -162,21 +171,18 @@ static void sema_pass_literal(struct token_val node, struct semantic_context *ct
         }
         // just a function call
         if (ctx->call) {
-            if (strcmp(node.val, "writeInt") == 0) {
-                chk_type_replace(ctx, "void", node.line, node.char_pos);
-                return;
-            }
             if ((val = get(&ctx->table->funcs, node.val, 0, ctx->call->arg_count)) != NULL) {
                 struct function *tmp_fun = (struct function*) val;
-                chk_type_replace(ctx, tmp_fun->type.val, node.line, node.char_pos);
+                chk_type_replace(ctx, tmp_fun->type->type.val, tmp_fun->type->array_dim, node.line, node.char_pos);
                 return;
             }
             add_error(ctx->err, CREATE_ERROR("this function doesn't exist", node.line, node.char_pos));
             return;
         }
         // nothing worked just search with the actual context
-        if ((val = get_from_ctx(ctx, node.val, ctx->actual_depth)) != NULL) {
-            chk_type_replace(ctx, val, node.line, node.char_pos);
+        struct return_get_ctx ret_ctx;
+        if ((ret_ctx = get_from_ctx(ctx, node.val, ctx->actual_depth)).type != NULL) {
+            chk_type_replace(ctx, ret_ctx.type, ret_ctx.array_dim, node.line, node.char_pos);
             return;
         }
 
@@ -192,6 +198,7 @@ static void sema_pass_literal(struct token_val node, struct semantic_context *ct
             return;
         }
         ctx->actual_type = "int";
+        ctx->array_dim = 0;
     } else if (node.type == TOK_STRING) {
         ctx->actual_type = "string";
     }
@@ -199,18 +206,69 @@ static void sema_pass_literal(struct token_val node, struct semantic_context *ct
 
 static void sema_pass_expr(struct base_expr *node, struct semantic_context *ctx);
 
+static void sema_pass_cons(struct base_expr *node, struct semantic_context *ctx) {
+    if (node->type == EXPR_ARRAY) {
+        struct array_access *arr = node->as.arr;
+        if (!check_sym_type(ctx, arr->name->as.val.val)) {
+            add_error(ctx->err, CREATE_ERROR("this type is not defined in this scope", arr->name->as.val.line, arr->name->as.val.char_pos));
+        }
+        for (size_t i = 0 ; i < arr->arg_count ; i++) {
+            if (!arr->arguments[i]) {
+                continue;
+            }
+            sema_pass_expr(arr->arguments[i], ctx);
+            if (strcmp("int", ctx->actual_type) != 0) {
+                add_error(ctx->err, CREATE_ERROR("array access value needs to be an int", 0, 0));
+            }
+        }
+        ctx->actual_type = arr->name->as.val.val;
+        ctx->array_dim = arr->arg_count;
+    }
+}
+
+static void sema_pass_array(struct array_access *node, struct semantic_context *ctx) {
+    sema_pass_expr(node->name, ctx);
+    if (node->arg_count > ctx->array_dim) {
+        add_error(ctx->err, CREATE_ERROR("can't access specified index", 0, 0));
+    }
+    int tmp = ctx->array_dim;
+    char *tmp_type = ctx->actual_type;
+    for (size_t i = 0 ; i < node->arg_count ; i++) {
+        sema_pass_expr(node->arguments[i], ctx);
+        if (strcmp("int", ctx->actual_type) != 0) {
+            add_error(ctx->err, CREATE_ERROR("array access value needs to be an int", 0, 0));
+        }
+    }
+    ctx->array_dim = tmp - node->arg_count;
+    ctx->actual_type = tmp_type;
+}
+
 static void access_binary_sema_pass(struct binary_expr *node, struct semantic_context *ctx) {
     ctx->accessing = true;
     sema_pass_expr(node->left, ctx);
+    if (ctx->array_dim > 0 && node->right->type == EXPR_LITERAL) {
+        char *rightVal = node->right->as.val.val;
+        if (strcmp(rightVal, "length") != 0) {
+            add_error(ctx->err, CREATE_ERROR("can't access value in array", node->op.line, node->op.char_pos));
+            ctx->accessing = false;
+            ctx->access_type = NULL;
+            ctx->array_dim = 0;
+            return;
+        }
+        ctx->actual_type = "int";
+        ctx->array_dim = 0;
+        ctx->accessing = false;
+        ctx->access_type = NULL;
+        return;
+    }
     sema_pass_expr(node->right, ctx);
     ctx->accessing = false;
 }
 
-static char *child_binary_sema_pass(struct base_expr *node, struct semantic_context *ctx) {
+static struct return_get_ctx child_binary_sema_pass(struct base_expr *node, struct semantic_context *ctx) {
     sema_pass_expr(node, ctx);
-    char *left_type = ctx->actual_type;
     END_NODE();
-    return left_type;
+    return (struct return_get_ctx) { ctx->actual_type, ctx->array_dim };
 }
 
 static void sema_pass_binary(struct binary_expr *node, struct semantic_context *ctx) {
@@ -220,10 +278,10 @@ static void sema_pass_binary(struct binary_expr *node, struct semantic_context *
         return;
     }
 
-    char *left = child_binary_sema_pass(node->left, ctx);
-    char *right = child_binary_sema_pass(node->right, ctx);
+    struct return_get_ctx left = child_binary_sema_pass(node->left, ctx);
+    struct return_get_ctx right = child_binary_sema_pass(node->right, ctx);
 
-    if (strcmp(left, right) != 0) {
+    if (strcmp(left.type, right.type) != 0 || left.array_dim != right.array_dim) {
         add_error(ctx->err, CREATE_ERROR("types doesn't match in expression", node->op.line, node->op.char_pos));
     }
 }
@@ -273,6 +331,12 @@ static void sema_pass_expr(struct base_expr *node, struct semantic_context *ctx)
         case EXPR_UNARY:
             sema_pass_unary(node->as.unary, ctx);
             break;
+        case EXPR_CONS:
+            sema_pass_cons(node->as.cons, ctx);
+            break;
+        case EXPR_ARRAY:
+            sema_pass_array(node->as.arr, ctx);
+            break;
         default:
             break;
     }
@@ -290,10 +354,10 @@ static void sema_pass_var(struct var_decl *node, struct semantic_context *ctx, b
     }
     enum expr_type glob_type = node->val->type;
     struct token_val name;
-    if (!check_sym_type(ctx->table, node->type.val)) {
-        add_error(ctx->err, CREATE_ERROR("this type is not defined in this scope", node->type.line, node->type.char_pos));
+    if (!check_sym_type(ctx, node->type->type.val)) {
+        add_error(ctx->err, CREATE_ERROR("this type is not defined in this scope", node->type->type.line, node->type->type.char_pos));
     }
-    ctx->type = node->type.val;
+    ctx->type = node->type->type.val;
     // var int number;
     if (glob_type == EXPR_LITERAL) {
         name = node->val->as.val;
@@ -308,11 +372,11 @@ static void sema_pass_var(struct var_decl *node, struct semantic_context *ctx, b
             add_error(ctx->err, CREATE_ERROR("the token is not an identifier", name.line, name.char_pos));
         }
         sema_pass_expr(node->val->as.binary->right, ctx);
-        if (strcmp(ctx->type, ctx->actual_type) != 0) {
+        if (strcmp(ctx->type, ctx->actual_type) != 0 || ctx->array_dim != node->type->array_dim) {
             // TODO: memory leak
             char *buffer = malloc(sizeof(char) * 64);
             snprintf(buffer, 64, "%s %s", "mismatching types expected", ctx->type);
-            add_error(ctx->err, CREATE_ERROR(buffer, node->type.line, node->type.char_pos));
+            add_error(ctx->err, CREATE_ERROR(buffer, node->type->type.line, node->type->type.char_pos));
         }
         ctx->type = NULL;
     }
@@ -320,9 +384,14 @@ static void sema_pass_var(struct var_decl *node, struct semantic_context *ctx, b
         add_error(ctx->err, CREATE_ERROR("variable already defined in this scope", name.line, name.char_pos));
         return;
     }
-    ctx->actual_offset += get_offset(node->type.val);
+    if (node->type->array_dim == 0) {
+        ctx->actual_offset += get_offset(ctx, node->type->type.val);
+    } else {
+        ctx->actual_offset += 8;
+    }
     struct symbol_val *sym = malloc(sizeof(struct symbol_val));
-    sym->type = node->type.val;
+    sym->type = node->type->type.val;
+    sym->array = node->type->array_dim;
     sym->offset = ctx->actual_offset;
     sym->arg_pos = 0;
     sym->positive_offset = 0;
@@ -430,7 +499,7 @@ static void sema_pass_fun(struct function *node, struct semantic_context *ctx) {
     int positive_offset = 16;
     int positive_total = 0;
     for (int i = 0 ; i < node->arg_count ; i++) {
-        if (!check_sym_type(ctx->table, node->arguments[i].type.val)) {
+        if (!check_sym_type(ctx, node->arguments[i].type.val)) {
             add_error(ctx->err, CREATE_ERROR("this type is not defined in this scope", node->arguments[i].type.line, node->arguments[i].type.char_pos));
             continue;
         }
@@ -438,14 +507,19 @@ static void sema_pass_fun(struct function *node, struct semantic_context *ctx) {
         sym->arg_pos = ctx->actual_fun->symbols.count;
         sym->modifier = 0;
         sym->type = node->arguments[i].type.val;
+        sym->array = node->arguments[i].array_dim;
         if (i < ARG_REGISTER_LIMIT) {
-            arg_offset += get_offset(node->arguments[i].type.val);
-            sym->offset = arg_offset;
+            if (node->arguments[i].array_dim > 0) {
+                arg_offset += 8;
+                sym->offset = arg_offset;
+            } else {
+                arg_offset += get_offset(ctx, node->arguments[i].type.val);
+                sym->offset = arg_offset;
+            }
         } else {
             sym->positive_offset = positive_offset;
-            int tmp = 8;
-            positive_offset += tmp;
-            positive_total += tmp;
+            positive_offset += 8;
+            positive_total += 8;
         }
         if (contains(&ctx->actual_fun->symbols, node->arguments[i].argument.val, 0, 0)) {
             add_error(ctx->err, CREATE_ERROR("argument already defined in this scope", node->arguments[i].argument.line, node->arguments[i].argument.char_pos));
@@ -459,12 +533,12 @@ static void sema_pass_fun(struct function *node, struct semantic_context *ctx) {
 }
 
 static void sema_pass_fun_args(struct function *fun, struct semantic_context *ctx) {
-    if (!check_sym_type(ctx->table, fun->type.val)) {
-        add_error(ctx->err, CREATE_ERROR("this type is not defined in this scope", fun->type.line, fun->type.char_pos));
+    if (!check_sym_type(ctx, fun->type->type.val) && strcmp("void", fun->type->type.val)) {
+        add_error(ctx->err, CREATE_ERROR("this type is not defined in this scope", fun->type->type.line, fun->type->type.char_pos));
     }
     for (int i = 0 ; i < fun->arg_count ; i++) {
-        if (!check_sym_type(ctx->table, fun->arguments[i].type.val)) {
-            add_error(ctx->err, CREATE_ERROR("this type is not defined in this scope", fun->type.line, fun->type.char_pos));
+        if (!check_sym_type(ctx, fun->arguments[i].type.val)) {
+            add_error(ctx->err, CREATE_ERROR("this type is not defined in this scope", fun->type->type.line, fun->type->type.char_pos));
         }
     }
 }
@@ -508,9 +582,10 @@ static void prlang_members_definition_semapass(struct class_table *table, struct
             }
 
             struct symbol_val *sym = malloc(sizeof(struct symbol_val));
-            sym->type = var->type.val;
+            sym->type = var->type->type.val;
             // no modifier right now
             sym->modifier = klass->members[i]->access + 1;
+            sym->array = var->type->array_dim;
             put(&table->properties, name.val, sym, 0, 0);
         }
     }
@@ -527,6 +602,7 @@ static void prlang_class_definitions_semapass(struct prlang_file *node, struct s
         }
         put(&ctx->table->classes, klass->name.val, table, 0, 0);
         prlang_members_definition_semapass(table, klass, ctx);
+        new_semantic_type(ctx, klass->name.val, 8);
     }
 }
 
@@ -566,7 +642,7 @@ void prlang_semapass(struct prlang_file *node, struct semantic_context *ctx) {
         }
         fn->symbols = init_symbol_hash();
         ctx->actual_fun = fn;
-        ctx->return_type = node->functions[i]->type.val;
+        ctx->return_type = node->functions[i]->type->type.val;
         put(&ctx->table->funcs_code, node->functions[i]->name.val, fn, 0, node->functions[i]->arg_count);
         sema_pass_fun(node->functions[i], ctx);
         fn->total_offset = ctx->actual_offset;

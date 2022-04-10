@@ -58,9 +58,10 @@ enum precedence {
     PREC_FACTOR,
     PREC_PREFIX,
     PREC_POSTFIX,
-    PREC_CONSTRUCTOR = 11,
-    PREC_CALL = 11,
-    PREC_ACCESS = 11 
+    PREC_CAST,
+    PREC_CALL = 12,
+    PREC_ARRAY = 12,
+    PREC_ACCESS = 12 
 };
 
 struct parse_infix {

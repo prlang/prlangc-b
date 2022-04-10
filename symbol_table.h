@@ -15,6 +15,7 @@ struct symbol_val {
     // this is temporal
     // TODO: change to enum
     char modifier;
+    int array;
 };
 
 struct bucket {
@@ -41,6 +42,7 @@ struct class_table {
     struct symbol_hash methods;
     struct symbol_hash methods_code;
     struct symbol_hash properties;
+    int size;
 };
 
 struct symbol_table {

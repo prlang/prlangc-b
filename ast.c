@@ -3,6 +3,18 @@
 
 #include "ast.h"
 
+struct prlang_type *init_type(struct token_val type, int array_dim) {
+    struct prlang_type* val = malloc(sizeof(struct prlang_type));
+    if (!val) {
+        printf("[ERROR] Not enough memory\n");
+        exit(1);
+    }
+
+    val->type = type;
+    val->array_dim = array_dim;
+    return val;
+}
+
 struct base_expr *init_literal(struct token_val data) {
     struct base_expr* base = malloc(sizeof(struct base_expr));
     if (!base) {
@@ -12,6 +24,27 @@ struct base_expr *init_literal(struct token_val data) {
 
     base->type = EXPR_LITERAL;
     base->as.val = data;
+    return base;
+}
+
+struct base_expr *init_array(struct base_expr *name, struct base_expr **arguments, size_t arg_count) {
+    struct base_expr* base = malloc(sizeof(struct base_expr));
+    if (!base) {
+        printf("[ERROR] Not enough memory\n");
+        exit(1);
+    }
+
+    struct array_access* node = malloc(sizeof(struct array_access));
+    if (!node) {
+        printf("[ERROR] Not enough memory\n");
+        exit(1);
+    }
+    node->name = name;
+    node->arguments = arguments;
+    node->arg_count = arg_count;
+
+    base->type = EXPR_ARRAY;
+    base->as.arr = node;
     return base;
 }
 
@@ -54,6 +87,26 @@ struct base_expr *init_binary_expr(struct token_val type, struct base_expr *left
 
     base->type = EXPR_BINARY;
     base->as.binary = node;
+    return base;
+}
+
+struct base_expr *init_cast(struct base_expr *val, struct base_expr *expr) {
+    struct base_expr* base = malloc(sizeof(struct base_expr));
+    if (!base) {
+        printf("[ERROR] Not enough memory\n");
+        exit(1);
+    }
+
+    struct cast_expr* node = malloc(sizeof(struct cast_expr));
+    if (!node) {
+        printf("[ERROR] Not enough memory\n");
+        exit(1);
+    }
+    node->val = val;
+    node->expr = expr;
+
+    base->type = EXPR_CAST;
+    base->as.cast = node;
     return base;
 }
 
@@ -109,6 +162,26 @@ struct base_stmt *init_while(struct base_expr *cond, struct block *block_node) {
     return base;
 }
 
+struct base_stmt *init_asm(char **code, size_t count) {
+    struct base_stmt* base = malloc(sizeof(struct base_stmt));
+    if (!base) {
+        printf("[ERROR] Not enough memory\n");
+        exit(1);
+    }
+
+    struct asm_stmt* node = malloc(sizeof(struct asm_stmt));
+    if (!node) {
+        printf("[ERROR] Not enough memory\n");
+        exit(1);
+    }
+    node->code = code;
+    node->count = count;
+
+    base->type = STMT_ASM;
+    base->as.asms = node;
+    return base;
+}
+
 struct base_stmt *init_for(void *left, bool left_stmt, struct base_expr *med, struct base_expr *right, struct block* block_node) {
     struct base_stmt* base = malloc(sizeof(struct base_stmt));
     if (!base) {
@@ -154,7 +227,7 @@ struct base_stmt *init_if(struct base_expr **cond, int cond_cnt, struct block **
     return base;
 }
 
-struct base_stmt *init_var_decl(struct base_expr *val, bool constant, struct token_val type) {
+struct base_stmt *init_var_decl(struct base_expr *val, bool constant, struct prlang_type *type) {
     struct base_stmt* base = malloc(sizeof(struct base_stmt));
     if (!base) {
         printf("[ERROR] Not enough memory\n");
@@ -194,7 +267,7 @@ struct base_stmt *init_return_stmt(struct base_expr *val) {
     return base;
 }
 
-struct function *init_function(struct block *block, struct token_val name, struct token_val type, struct function_arg *arguments, int argument_cnt) {
+struct function *init_function(struct block *block, struct token_val name, struct prlang_type *type, struct function_arg *arguments, int argument_cnt) {
     struct function* node = malloc(sizeof(struct function));
     if (!node) {
         printf("[ERROR] Not enough memory\n");

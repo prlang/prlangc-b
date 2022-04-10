@@ -34,11 +34,70 @@ static char *print_type(struct unary_expr *node) {
     }
 }
 
+static void debug_expr(struct base_expr *node, struct astnode_debug *details);
+
+static void debug_array(struct array_access *node, struct astnode_debug *details) {
+    printf("%sarray:\n", details->prefix);
+
+    prefix_add(details);
+    printf("%sname:\n", details->prefix);
+    debug_expr(node->name, details);
+
+    printf("%sarguments:\n", details->prefix);
+    for (size_t i = 0 ; i < node->arg_count ; i++) {
+        if (!node->arguments[i]) {
+            continue;
+        }
+        printf("%sargument %ld:\n", details->prefix, i);
+        debug_expr(node->arguments[i], details);
+    }
+    prefix_remove(details);
+}
+
+static void debug_call(struct call_expr *node, struct astnode_debug *details) {
+    printf("%s(call)\n", details->prefix);
+    for (int i = 0 ; i < node->arg_count ; i++) {
+        printf("%sargument %d:\n", details->prefix, i);
+        debug_expr(node->arguments[i], details);
+    }
+    printf("%sexpr:\n", details->prefix);
+
+    prefix_add(details);
+    debug_expr(node->val, details);
+    prefix_remove(details);
+}
+
 static void debug_expr(struct base_expr *node, struct astnode_debug *details) {
     switch (node->type) {
         case EXPR_LITERAL:
         {
             printf("%s%s\n", details->prefix, (char*) node->as.val.val);
+            break;
+        }
+        case EXPR_CONS:
+        {
+            printf("%sconstructor:\n", details->prefix);
+            if (node->as.cons->type == EXPR_CALL) {
+                debug_call(node->as.cons->as.call, details);
+            } else {
+                debug_array(node->as.cons->as.arr, details);
+            }
+            break;
+        }
+        case EXPR_ARRAY:
+        {
+            debug_array(node->as.arr, details);
+            break;
+        }
+        case EXPR_CAST:
+        {
+            printf("%scast:\n", details->prefix);
+            prefix_add(details);
+            printf("%s[type]\n", details->prefix);
+            debug_expr(node->as.cast->val, details);
+            printf("%s[expr]\n", details->prefix);
+            debug_expr(node->as.cast->expr, details);
+            prefix_remove(details);
             break;
         }
         case EXPR_BINARY:
@@ -52,16 +111,7 @@ static void debug_expr(struct base_expr *node, struct astnode_debug *details) {
         }
         case EXPR_CALL:
         {
-            printf("%s(call)\n", details->prefix);
-            for (int i = 0 ; i < node->as.call->arg_count ; i++) {
-                printf("%sargument %d:\n", details->prefix, i);
-                debug_expr(node->as.call->arguments[i], details);
-            }
-            printf("%sexpr:\n", details->prefix);
-
-            prefix_add(details);
-            debug_expr(node->as.call->val, details);
-            prefix_remove(details);
+            debug_call(node->as.call, details);
             break;
         }
         case EXPR_UNARY:
@@ -82,7 +132,12 @@ static void debug_stmt(struct base_stmt *node, struct astnode_debug *details) {
     switch (node->type) {
         case STMT_VAR:
         {
-            printf("%svar decl: isConstant: %s, type: %s\n", details->prefix, node->as.var->constant ? "true" : "false", node->as.var->type.val);
+            printf("%svar decl: isConstant: %s, type: %s arr %d\n", 
+                                    details->prefix, 
+                                    node->as.var->constant ? "true" : "false", 
+                                    node->as.var->type->type.val, 
+                                    node->as.var->type->array_dim);
+
             debug_expr(node->as.var->val, details);
             break;
         }
@@ -97,6 +152,16 @@ static void debug_stmt(struct base_stmt *node, struct astnode_debug *details) {
                 }
                 printf("%sbody %ld:\n", details->prefix, i);
                 debug_block(node->as.is->blocks[i], details);
+            }
+            prefix_remove(details);
+            break;
+        }
+        case STMT_ASM:
+        {
+            printf("%sasm:\n", details->prefix);
+            prefix_add(details);
+            for (size_t i = 0 ; i < node->as.asms->count ; i++) {
+                printf("%s%s\n", details->prefix, node->as.asms->code[i]);
             }
             prefix_remove(details);
             break;
@@ -168,7 +233,7 @@ static void debug_block(struct block *node, struct astnode_debug *details) {
 }
 
 static void debug_function(struct function *node, struct astnode_debug *details) {
-    printf("%sfunction: %s return: %s\n", details->prefix, node->name.val, node->type.val);
+    printf("%sfunction: %s return: %s arr %d\n", details->prefix, node->name.val, node->type->type.val, node->type->array_dim);
     printf("%sarguments:\n", details->prefix);
 
     prefix_add(details);

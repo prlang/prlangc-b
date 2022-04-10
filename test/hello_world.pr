@@ -1,12 +1,61 @@
-int lel(int a, int b, int c, int d, int e, int f, int g, int h) {
-    return a + b + c + d + e + f + g + h;
+void writeInt(int val) {
+    asm {
+        "   sub rsp, 36"
+        "   mov BYTE [rbp - 6], 10"
+        "   mov BYTE [rbp - 5], 0"
+        "   mov DWORD [rbp - 4], 2"
+        "   cmp edi, 0"
+        "   je .LWW0"
+        "   jmp .LW0"
+        ".LWW0:"
+        "   mov rax, 1"
+        "   mov rdx, 2"
+        "   mov rdi, 1"
+        "   mov BYTE [rbp - 5], '0'"
+        "   mov BYTE [rbp - 4], 10"
+        "   lea rsi, BYTE [rbp - 5]"
+        "   syscall"
+        "   leave"
+        "   ret"
+        ".LW0:"
+        "   cmp edi, 0"
+        "   je .LW1"
+        "   mov edx, 0"
+        "   mov eax, edi"
+        "   mov ecx, 10"
+        "   div ecx"
+        "   mov edi, eax"
+        "   add edx, '0'"
+        "   mov esi, 31"
+        "   sub esi, DWORD [rbp - 4]"
+        "   mov BYTE [rbp - 36 + rsi], dl"
+        "   inc DWORD [rbp - 4]"
+        "   jmp .LW0"
+        ".LW1:"
+        "   lea rsi, [rbp - 36]"
+        "   mov eax, 32"
+        "   sub eax, DWORD [rbp - 4]"
+        "   add rsi, rax"
+        "   mov eax, 1"
+        "   mov edx, DWORD [rbp - 4]"
+        "   mov edi, 1"
+        "   syscall"
+    }
+    return;
+}
+
+int get_length(int[] arr) {
+    return arr.length;
 }
 
 void main(int a, int b) {
-    var int c = 1;
-    var int i = lel(1, 2, 4, 1, 4, 10 + c, 3, 4);
-    for (var int le = 0 ; le < i ; le = le + 1) {
-        writeInt(le + c);
+    var int[][] arr = new int[3][];
+    arr[2] = new int[5];
+    arr[2][2] = 7;
+    var int max = arr[2][2] + 51;
+    writeInt(get_length(arr[2]));
+    for (var int le = 0 ; le < max ;) {
+        writeInt(le++);
     }
     return;
 }

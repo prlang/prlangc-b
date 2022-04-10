@@ -58,6 +58,7 @@ char* tok_to_str(enum token_type val) {
         case TOK_PRIVATE: return "private";
         case TOK_PUBLIC: return "public";
         case TOK_PROTECTED: return "protected";
+        case TOK_NEW: return "new";
         case TOK_DO: return "do";
         case TOK_VAR: return "var";
         case TOK_RETURN: return "return";
@@ -66,6 +67,7 @@ char* tok_to_str(enum token_type val) {
         case TOK_IMPORT: return "import";
         case TOK_MODULE: return "module";
         case TOK_BREAK: return "break";
+        case TOK_ASM: return "asm";
         case TOK_NUMBER: return "&number";
         case TOK_FLOAT: return "&float";
         case TOK_IDENTIFIER: return "&identifier";

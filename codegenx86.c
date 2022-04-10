@@ -98,6 +98,98 @@ static char *get_jmp_ins(enum token_type type) {
     return "";
 }
 
+struct arr_gen_ret {
+    int reg;
+    int size;
+};
+
+static struct arr_gen_ret codegen_array_access(struct array_access *node, struct prlang_codegen *gen, bool assign) {
+    int base = codegen_expr(node->name, gen);
+    fprintf(gen->file,
+        "   ; init array access\n"
+    );
+    for (size_t i = 0 ; i < node->arg_count ; i++) {
+        if (i + 1 == node->arg_count) {
+            int reg = codegen_expr(node->arguments[i], gen);
+            int new_reg = get_free_reg();
+
+            int size = 0;
+
+            if (node->name->type == EXPR_LITERAL) {
+                struct symbol_val *sym = get(&gen->ctx->actual_fun->symbols, node->name->as.val.val, gen->depth, 0);
+                if (sym->array > node->arg_count) {
+                    size = 8;
+                } else {
+                    size = get_offset(gen->ctx, sym->type);
+                }
+            }
+
+            fprintf(gen->file,
+                "   imul %s, %d\n",
+                arg_reg_x32[reg], size 
+            );
+
+            fprintf(gen->file,
+                "   add %s, 4\n",
+                arg_reg_x32[reg] 
+            );
+
+            if (assign) {
+                fprintf(gen->file,
+                    "   lea %s, [%s + %s]\n",
+                    arg_reg_x64[new_reg], arg_reg_x64[base], arg_reg_x64[reg]
+                );
+                fprintf(gen->file,
+                    "   push %s\n",
+                    arg_reg_x64[new_reg]
+                );
+            } else {
+                fprintf(gen->file,
+                    "   mov %s, [%s + %s]\n",
+                    arg_reg_x32[new_reg], arg_reg_x64[base], arg_reg_x64[reg]
+                );
+            }
+
+            free_regs[reg] = true;
+            free_regs[base] = true;
+            fprintf(gen->file,
+                "   ; end array access\n"
+            );
+
+            struct arr_gen_ret ret = {new_reg, size};
+            return ret;
+        }
+
+        int reg = codegen_expr(node->arguments[i], gen);
+        int new_reg = get_free_reg();
+
+        fprintf(gen->file,
+            "   imul %s, 8\n",
+            arg_reg_x32[reg] 
+        );
+
+        fprintf(gen->file,
+            "   add %s, 4\n",
+            arg_reg_x32[reg] 
+        );
+
+        fprintf(gen->file,
+            "   mov %s, [%s + %s]\n",
+            arg_reg_x64[new_reg], arg_reg_x64[base], arg_reg_x64[reg]
+        );
+
+        free_regs[reg] = true;
+
+        if (i != 0) {
+            free_regs[base] = true;
+        }
+
+        base = new_reg;
+    }
+
+    free_regs[base] = true;
+}
+
 static int codegen_binary_expr(struct binary_expr *node, struct prlang_codegen *gen) {
     if (node->op.type == TOK_ASSIGN) {
         int reg = 0;
@@ -109,6 +201,50 @@ static int codegen_binary_expr(struct binary_expr *node, struct prlang_codegen *
                 "   mov DWORD [rbp - %d], %s\n",
                 sym->offset, arg_reg_x32[reg]
             );
+        } else if (node->left->type == EXPR_ARRAY) {
+            struct array_access *tmp_arr = node->left->as.arr;
+            struct arr_gen_ret arr_gen = codegen_array_access(tmp_arr, gen, true);
+            reg = codegen_expr(node->right, gen);
+            fprintf(gen->file,
+                "   pop %s\n",
+                arg_reg_x64[arr_gen.reg]
+            );
+            fprintf(gen->file,
+                "   mov %s [%s], %s\n",
+                arr_gen.size == 8 ? "QWORD" : "DWORD" , arg_reg_x64[arr_gen.reg], arr_gen.size == 8 ? arg_reg_x64[reg] : arg_reg_x32[reg]
+            );
+            free_regs[arr_gen.reg] = true;
+        }
+        return reg;
+    } else if (node->op.type == TOK_DOT) {
+        int reg = 0;
+        // special cases for array length property access
+        if (node->left->type == EXPR_ARRAY) {
+            struct array_access *tmp_arr = node->left->as.arr;
+            struct arr_gen_ret arr_gen = codegen_array_access(tmp_arr, gen, false);
+            reg = get_free_reg();
+            fprintf(gen->file,
+                "   mov %s, DWORD [%s]\n",
+                arg_reg_x32[reg], arg_reg_x64[arr_gen.reg]
+            );
+
+            free_regs[arr_gen.reg] = true;
+
+        } else if (node->left->type == EXPR_LITERAL) {
+            struct token_val tmp_lit = node->left->as.val;
+            struct symbol_val *sym = get(&gen->ctx->actual_fun->symbols, tmp_lit.val, gen->depth, 0);
+            if (sym->array > 0) {
+                reg = get_free_reg();
+                fprintf(gen->file,
+                    "   mov %s, QWORD [rbp - %d]\n",
+                    arg_reg_x64[reg], sym->offset
+                );
+
+                fprintf(gen->file,
+                    "   mov %s, DWORD [%s]\n",
+                    arg_reg_x32[reg], arg_reg_x64[reg]
+                );
+            }
         }
         return reg;
     }
@@ -122,6 +258,11 @@ static int codegen_binary_expr(struct binary_expr *node, struct prlang_codegen *
     } else if (node->op.type == TOK_MULT) {
         fprintf(gen->file,
             "   imul %s, %s\n",
+            arg_reg_x32[left], arg_reg_x32[right]
+        );
+    } else if (node->op.type == TOK_SUBSTRACT) {
+        fprintf(gen->file,
+            "   sub %s, %s\n",
             arg_reg_x32[left], arg_reg_x32[right]
         );
     } else if (node->op.type == TOK_EQUAL 
@@ -151,6 +292,38 @@ static int codegen_binary_expr(struct binary_expr *node, struct prlang_codegen *
     return left;
 }
 
+int codegen_array_cons(struct array_access *node, struct prlang_codegen *gen) {
+    // TODO: this is temporal
+    fprintf(gen->file,
+        "   ; init array constructor\n"
+    );
+    int size = node->arg_count > 1 ? 8 : 4;
+    int reg = codegen_expr(node->arguments[0], gen);
+    fprintf(gen->file,
+        "   push %s\n"
+        "   mov edi, %s\n"
+        "   imul edi, %d\n"
+        "   add edi, 4\n"
+        "   call alloc_lang\n"
+        "   pop rsi\n"
+        "   mov [rax], esi\n",
+        arg_reg_x64[reg], arg_reg_x32[reg], size
+    );
+
+    fprintf(gen->file,
+        "   ; end array constructor\n"
+    );
+
+    free_regs[reg] = true;
+    return 6;
+}
+
+int codegen_cons(struct base_expr *node, struct prlang_codegen *gen) {
+    if (node->type == EXPR_ARRAY) {
+        return codegen_array_cons(node->as.arr, gen);
+    }
+}
+
 int codegen_literal(struct token_val node, struct prlang_codegen *gen) {
     int free_reg = get_free_reg();
     if (node.type == TOK_IDENTIFIER) {
@@ -176,50 +349,93 @@ int codegen_literal(struct token_val node, struct prlang_codegen *gen) {
 }
 
 int codegen_call(struct call_expr *node, struct prlang_codegen *gen) {
-    for (size_t i = node->arg_count - 1; i >= 0 ; i--) {
-        int reg = codegen_expr(node->arguments[i], gen);
+    if (node->arg_count != 0) {
+        for (size_t i = node->arg_count - 1; i >= 0 ; i--) {
+            int reg = codegen_expr(node->arguments[i], gen);
         
-        fprintf(gen->file,
-            "   push %s\n",
-            arg_reg_x64[reg]
-        );
-
-        free_regs[reg] = true;
-
-        if (i == 0) break;
-        // fprintf(gen->file,
-        //    "   mov %s, %s\n",
-        //    arg_reg_x32[i], arg_reg_x32[reg]
-        // );
-    }
-    for (size_t i = 0 ; i < node->arg_count ; i++) {
-        if (i < 6) {
             fprintf(gen->file,
-                "   pop %s\n",
-                arg_reg_x64[i]
+                "   push %s\n",
+                arg_reg_x64[reg]
             );
-            free_regs[i] = true;
+
+            free_regs[reg] = true;
+
+            if (i == 0) break;
+            // fprintf(gen->file,
+            //    "   mov %s, %s\n",
+            //    arg_reg_x32[i], arg_reg_x32[reg]
+            // );
+        }
+        for (size_t i = 0 ; i < node->arg_count ; i++) {
+            if (i < 6) {
+                fprintf(gen->file,
+                    "   pop %s\n",
+                    arg_reg_x64[i]
+                );
+                free_regs[i] = true;
+            }
         }
     }
     if (node->val->type == EXPR_LITERAL) {
-        if (strcmp(node->val->as.val.val, "writeInt") == 0) {
-            fprintf(gen->file,
-                "   call writeInt\n"
-            );
-            return 6;
-        }
         struct fun_table *table = get(&gen->ctx->table->funcs_code, node->val->as.val.val, 0, node->arg_count);
-        fprintf(gen->file,
-            "   call %s\n"
-            "   add rsp, %d\n", 
-            node->val->as.val.val, table->total_pos_offset
-        );
+        if (table->total_pos_offset != 0) {
+            fprintf(gen->file,
+                "   call %s\n"
+                "   add rsp, %d\n", 
+                node->val->as.val.val, table->total_pos_offset
+            );
+        } else {
+            fprintf(gen->file,
+                "   call %s\n",
+                node->val->as.val.val
+            );
+        }
     }
     // call return eax register
     return 6;
 }
 
 int codegen_unary(struct unary_expr *node, struct prlang_codegen *gen) {
+    switch (node->op.type) {
+        case TOK_DECREMENT:
+        case TOK_INCREMENT:
+        {
+            if (node->val->type == EXPR_LITERAL) {
+                int free_reg = get_free_reg();
+                struct token_val tmp_lit = node->val->as.val;
+                struct symbol_val *sym = get(&gen->ctx->actual_fun->symbols, tmp_lit.val, gen->depth, 0);
+                // example : ++variable | --variable;
+                if (node->ut == UT_PREFIX) {
+                    fprintf(gen->file,
+                        "   %s DWORD [rbp - %d], 1\n",
+                        node->op.type == TOK_DECREMENT ? "sub" : "add" ,sym->offset
+                    );
+                    fprintf(gen->file,
+                        "   mov %s, DWORD [rbp - %d]\n",
+                        arg_reg_x32[free_reg], sym->offset
+                    );
+                // example : variable++;
+                } else {
+                    fprintf(gen->file,
+                        "   mov %s, DWORD [rbp - %d]\n",
+                        arg_reg_x32[free_reg], sym->offset
+                    );
+                    fprintf(gen->file,
+                        "   %s DWORD [rbp - %d], 1\n",
+                        node->op.type == TOK_DECREMENT ? "sub" : "add", sym->offset
+                    );
+                }
+                return free_reg;
+            }
+            break;
+        }
+        case TOK_NEGATION:
+            break;
+        case TOK_SUBSTRACT:
+            break;
+        default:
+            break;
+    }
     return 0;
 }
 
@@ -233,6 +449,10 @@ int codegen_expr(struct base_expr *node, struct prlang_codegen *gen) {
             return codegen_call(node->as.call, gen);
         case EXPR_UNARY:
             return codegen_unary(node->as.unary, gen);
+        case EXPR_CONS:
+            return codegen_cons(node->as.cons, gen);
+        case EXPR_ARRAY:
+            return codegen_array_access(node->as.arr, gen, false).reg;
         default:
             break;
     }
@@ -253,8 +473,8 @@ void codegen_var(struct var_decl *node, struct prlang_codegen *gen) {
             if (val.type == TOK_IDENTIFIER) {
                 int reg = codegen_literal(val, gen);
                 fprintf(gen->file, 
-                    "   mov DWORD [rbp - %d], %s\n", 
-                    sym->offset, arg_reg_x32[reg]
+                    "   mov %s [rbp - %d], %s\n", 
+                    get_offset(gen->ctx, sym->type) == 8 ? "QWORD" : "DWORD", sym->offset, arg_reg_x32[reg]
                 );
             } else if (val.type == TOK_NUMBER) {
                 fprintf(gen->file, 
@@ -266,11 +486,18 @@ void codegen_var(struct var_decl *node, struct prlang_codegen *gen) {
         }
 
         int reg = codegen_expr(tmp->right, gen);
-                    
-        fprintf(gen->file, 
-            "   mov DWORD [rbp - %d], %s\n", 
-            sym->offset, arg_reg_x32[reg]
-        );
+        
+        if (tmp->right->type == EXPR_CONS) {
+            fprintf(gen->file, 
+                "   mov QWORD [rbp - %d], %s\n", 
+                sym->offset, arg_reg_x64[reg]
+            );
+        } else {
+            fprintf(gen->file, 
+                "   mov DWORD [rbp - %d], %s\n", 
+                sym->offset, arg_reg_x32[reg]
+            );
+        }
 
         free_regs[reg] = true;
     }
@@ -423,7 +650,15 @@ void codegen_for(struct for_stmt *node, struct prlang_codegen *gen) {
         ".L%d:\n", 
         endfor_label
     );
+}
 
+void codegen_asm(struct asm_stmt *node, struct prlang_codegen *gen) {
+    for (size_t i = 0 ; i < node->count ; i++) {
+        fprintf(gen->file, 
+            "%s\n", 
+            node->code[i]
+        );
+    }
 }
 
 void codegen_stmt(struct base_stmt *node, struct prlang_codegen *gen) {
@@ -437,6 +672,9 @@ void codegen_stmt(struct base_stmt *node, struct prlang_codegen *gen) {
             free_regs[expr] = true;
             break;
         }
+        case STMT_ASM:
+            codegen_asm(node->as.asms, gen);
+            break;
         case STMT_RETURN:
             codegen_return(node->as.rs, gen);
             break;
@@ -487,8 +725,8 @@ void codegen_fun(struct function *node, struct prlang_codegen *gen) {
         struct symbol_val *sym = get(&gen->ctx->actual_fun->symbols, node->arguments[i].argument.val, 0, 0);
         if (i < 6) {
             fprintf(gen->file,
-                "   mov DWORD [rbp - %d], %s\n",
-                sym->offset, arg_reg_x32[i]
+                "   mov %s [rbp - %d], %s\n",
+                sym->offset == 8 ? "QWORD" : "DWORD", sym->offset, sym->offset == 8 ? arg_reg_x64[i] : arg_reg_x32[i]
             );
         }
     }
@@ -501,47 +739,9 @@ void prlang_codegen(struct prlang_file *node, struct prlang_codegen *gen) {
         fprintf(gen->file,
             "section .text\n"
             "   global _start\n"
+            "extern alloc_lang\n"
         );
         // TODO GENERATE EXTERNS
-
-        // here generate some helper functions
-        fprintf(gen->file, 
-            "; prints an integer\n"
-            "writeInt:\n"
-            "   push rbp\n"
-            "   mov rbp, rsp\n"
-            "   sub rsp, 36\n"
-            "   mov BYTE [rbp - 6], 10\n"
-            "   mov BYTE [rbp - 5], 0\n"
-            "   mov DWORD [rbp - 4], 2\n"
-            "   jmp .LW0\n"
-            ".LW0:\n"
-            "   cmp edi, 0\n"
-            "   je .LW1\n"
-            "   mov edx, 0\n"
-            "   mov eax, edi\n"
-            "   mov ecx, 10\n"
-            "   div ecx\n"
-            "   mov edi, eax\n"
-            "   add edx, '0'\n"
-            "   mov esi, 31\n"
-            "   sub esi, DWORD [rbp - 4]\n"
-            "   mov BYTE [rbp - 36 + rsi], dl\n"
-            "   inc DWORD [rbp - 4]\n"
-            "   jmp .LW0\n"
-            ".LW1:\n"
-            "   lea rsi, [rbp - 36]\n"
-            "   mov eax, 32\n"
-            "   sub eax, DWORD [rbp - 4]\n"
-            "   add rsi, rax\n"
-            "   mov eax, 1\n"
-            "   mov edx, DWORD [rbp - 4]\n"
-            "   mov edi, 1\n"
-            "   syscall\n"
-            "   nop\n"
-            "   leave\n"
-            "   ret\n\n"
-        );
 
         fprintf(gen->file, 
             "; entry point\n"

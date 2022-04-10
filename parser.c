@@ -54,6 +54,37 @@ static struct base_expr **parse_arguments(struct parser_helper *helper, int *arg
     return NULL;
 }
 
+// PARSING ARRAY ARGUMENTS
+static struct base_expr **parse_arr_arguments(struct parser_helper *helper, int *argument_cnt) {
+    int arr_size = ARRAY_FACTOR;
+    struct base_expr **arguments = malloc(sizeof(struct base_expr*) * arr_size);
+
+    struct base_expr *base = parse_expr(helper);
+    
+    if (!base) {
+        return NULL;
+    }
+
+    CONSUME_TOK(TOK_RIGHT_BRACKETS, "expected ]");
+
+    add_toarray(&arguments, &arr_size, argument_cnt, base);
+
+    while (READ_TOK().type == TOK_LEFT_BRACKETS) {
+        ENSURE_SIZE();
+        if (ACTUAL_TOK().type == TOK_RIGHT_BRACKETS) {
+            add_toarray(&arguments, &arr_size, argument_cnt, NULL);
+            CONSUME_TOK(TOK_RIGHT_BRACKETS, "expected ]");
+            continue;
+        }
+        struct base_expr *expr = parse_expr(helper);
+        add_toarray(&arguments, &arr_size, argument_cnt, expr);
+        CONSUME_TOK(TOK_RIGHT_BRACKETS, "expected ]");
+    }
+
+    PREVIOUS_TOK();
+    return arguments;
+}
+
 // EXPRESSION
 static struct base_expr *parse_expr_internal(struct parser_helper *helper, int precedence) {
 
@@ -85,10 +116,12 @@ static struct base_expr *parse_binary(struct binary_infix *infix, struct parser_
 // ASSIGN
 static struct base_expr *parse_assign(struct binary_infix *infix, struct parser_helper *helper, struct base_expr *node, struct token_val val) {
 
+    if (!node) return NULL;
+
     struct base_expr *right = parse_expr_internal(helper, infix->base.precedence - (infix->is_right ? 1 : 0));
     enum expr_type left_type = node->type;
 
-    if (left_type != EXPR_LITERAL && left_type != EXPR_BINARY) {
+    if (left_type != EXPR_LITERAL && left_type != EXPR_BINARY && left_type != EXPR_ARRAY) {
         add_error(helper->errors, CREATE_ERROR("invalid assign type", val.line, val.char_pos));
         return NULL;
     }
@@ -117,8 +150,8 @@ static struct base_expr *parse_access(struct parse_infix *infix, struct parser_h
     enum expr_type left_type = node->type;
     enum expr_type right_type = right->type;
 
-    if ( (left_type != EXPR_CALL && left_type != EXPR_LITERAL && left_type != EXPR_BINARY) || 
-            (right_type != EXPR_CALL && right_type != EXPR_LITERAL && right_type != EXPR_BINARY) ) {
+    if ( (left_type != EXPR_CALL && left_type != EXPR_LITERAL && left_type != EXPR_BINARY && left_type != EXPR_ARRAY) || 
+            (right_type != EXPR_CALL && right_type != EXPR_LITERAL && right_type != EXPR_BINARY && right_type != EXPR_ARRAY) ) {
         add_error(helper->errors, CREATE_ERROR("accessing invalid value", val.line, val.char_pos));
         return NULL;
     }
@@ -134,6 +167,16 @@ static struct base_expr *parse_unary_postfix(struct parse_infix *infix, struct p
 // UNARY PREFIX
 static struct base_expr *parse_unary(struct parse_prefix *prefix, struct parser_helper *helper, struct token_val val) {
     struct base_expr *child = parse_expr_internal(helper, PREC_PREFIX);
+    if (val.type == TOK_INCREMENT || val.type == TOK_DECREMENT) {
+        if (child->type != EXPR_LITERAL && child->type != EXPR_UNARY) {
+            add_error(helper->errors, CREATE_ERROR("expected identifier or value access", val.line, val.char_pos));
+            return NULL;
+        }
+        if (child->type == EXPR_UNARY) {
+            struct unary_expr *unary = child->as.unary;
+            
+        }
+    }
     return init_unary_expr(val, child, UT_PREFIX);
 }
 
@@ -141,7 +184,28 @@ static struct base_expr *parse_unary(struct parse_prefix *prefix, struct parser_
 static struct base_expr *parse_grouping(struct parse_prefix *prefix, struct parser_helper *helper, struct token_val val) {
     struct base_expr *expr = parse_expr(helper);
     CONSUME_TOK(TOK_RIGHT_PAREN, "expected )");
+    if (expr->type == EXPR_LITERAL) {
+        struct base_expr *cast = parse_expr_internal(helper, PREC_CAST);
+        return init_cast(expr, cast);
+    }
     return expr;
+}
+
+static struct base_expr *parse_array(struct parse_infix *infix, struct parser_helper *helper, struct base_expr *node, struct token_val val) {
+    int arg_count = 0;
+    struct base_expr **arguments = parse_arr_arguments(helper, &arg_count);
+    if (!arguments) {
+        return NULL;
+    }
+
+    for (int i = 0 ; i < arg_count ; i++) {
+        if (!arguments[i]) {
+            add_error(helper->errors, CREATE_ERROR("accessing invalid value", val.line, val.char_pos));
+            return NULL;
+        }
+    }
+
+    return init_array(node, arguments, arg_count);
 }
 
 // CALL
@@ -154,6 +218,58 @@ static struct base_expr *parse_call(struct parse_infix *infix, struct parser_hel
 // LITERAL
 static struct base_expr *parse_literal(struct parse_prefix *prefix, struct parser_helper *helper, struct token_val val) {
     return init_literal(val);
+}
+
+// CONSTRUCTOR
+static struct base_expr *parse_constructor(struct parse_prefix *prefix, struct parser_helper *helper, struct token_val val) {
+    ENSURE_SIZE();
+    struct token_val name = READ_TOK();
+
+    if (name.type != TOK_IDENTIFIER) {
+        add_error(helper->errors, CREATE_ERROR("expected identifier", name.line, name.char_pos));
+        return NULL;
+    }
+    // TODO: change this!
+
+    struct base_expr *ret = malloc(sizeof(struct base_expr));
+    if (!ret) {
+        printf("[ERROR] Not enough memory\n");
+        exit(1);
+    }
+
+    ret->type = EXPR_CONS;
+
+    struct base_expr *cons = malloc(sizeof(struct base_expr));
+    if (!cons) {
+        printf("[ERROR] Not enough memory\n");
+        exit(1);
+    }
+
+    ret->as.cons = cons;
+
+    struct base_expr *call_name = init_literal(name);
+
+    if (ACTUAL_TOK().type == TOK_LEFT_PAREN) {
+        CONSUME_TOK(TOK_LEFT_PAREN, "expected (");
+        int arg_cnt = 0;
+        struct base_expr **arguments = parse_arguments(helper, &arg_cnt);
+        cons->as.call = init_call_expr(call_name, arguments, arg_cnt)->as.call;
+        cons->type = EXPR_CALL;
+        return ret;
+    } else if (ACTUAL_TOK().type == TOK_LEFT_BRACKETS) {
+        CONSUME_TOK(TOK_LEFT_BRACKETS, "expected [");
+        int arg_count = 0;
+        struct base_expr **arguments = parse_arr_arguments(helper, &arg_count);
+        if (!arguments) {
+            return NULL;
+        }
+        cons->as.arr = init_array(call_name, arguments, arg_count)->as.arr;
+        cons->type = EXPR_ARRAY;
+        return ret;
+    } else {
+        add_error(helper->errors, CREATE_ERROR("expected [ or (", name.line, name.char_pos));
+        return NULL;
+    }
 }
 
 // - | +
@@ -187,9 +303,15 @@ struct parse_infix access = INFIX(PREC_ACCESS, parse_access);
 // call
 struct parse_infix call = INFIX(PREC_CALL, parse_call);
 
+// array access
+struct parse_infix arr_access = INFIX(PREC_ARRAY, parse_array);
+
 
 // - | ! | ++ | -- | +
 struct parse_prefix prefix = PREFIX(parse_unary);
+
+// constructor
+struct parse_prefix cons = PREFIX(parse_constructor);
 
 // ( expr )
 struct parse_prefix grouping = PREFIX(parse_grouping);
@@ -218,6 +340,7 @@ struct parser_helper init_parser_helper(struct lexer *lex, struct errors *errors
     prefixes[TOK_NEGATION] = &prefix;
     prefixes[TOK_INCREMENT] = &prefix;
     prefixes[TOK_DECREMENT] = &prefix;
+    prefixes[TOK_NEW] = &cons;
     prefixes[TOK_LEFT_PAREN] =  &grouping;
 
     infixes[TOK_SUBSTRACT] = (struct parse_infix*) &term;
@@ -238,6 +361,7 @@ struct parser_helper init_parser_helper(struct lexer *lex, struct errors *errors
 
     infixes[TOK_ASSIGN] = (struct parse_infix*) &assign;
     infixes[TOK_DOT] = &access;
+    infixes[TOK_LEFT_BRACKETS] = &arr_access;
     infixes[TOK_INCREMENT] = &postfix;
     infixes[TOK_DECREMENT] = &postfix;
     infixes[TOK_LEFT_PAREN] = &call;
@@ -259,6 +383,29 @@ static struct base_expr *parse_expr_stmt(struct parser_helper *helper) {
 
 static struct block *parse_block(struct parser_helper *helper);
 
+static struct prlang_type *parse_type(struct parser_helper *helper) {
+    struct token_val tok_type = READ_TOK();
+
+    if (tok_type.type != TOK_IDENTIFIER) {
+        add_error(helper->errors, CREATE_ERROR("expected type", tok_type.line, tok_type.char_pos));
+        return NULL;
+    }
+
+    struct token_val tok = ACTUAL_TOK();
+
+    int array_dim = 0;
+    
+    while (tok.type == TOK_LEFT_BRACKETS) {
+        ENSURE_SIZE();
+        READ_TOK();
+        CONSUME_TOK(TOK_RIGHT_BRACKETS, "expected ]");
+        tok = ACTUAL_TOK();
+        array_dim++;
+    }
+
+    return init_type(tok_type, array_dim);
+}
+
 static struct base_stmt *parse_var(struct parser_helper *helper) {
 
     bool constant = false;
@@ -274,13 +421,7 @@ static struct base_stmt *parse_var(struct parser_helper *helper) {
         return NULL;
     }
 
-    ENSURE_SIZE();
-    struct token_val type_tok = READ_TOK();
-
-    if (type_tok.type != TOK_IDENTIFIER) {
-        add_error(helper->errors, CREATE_ERROR("expected type", type_tok.line, type_tok.char_pos));
-        return NULL;
-    }
+    struct prlang_type *type = parse_type(helper);
 
     struct token_val tok = ACTUAL_TOK();
     struct base_expr *assign = parse_expr_stmt(helper);
@@ -294,7 +435,7 @@ static struct base_stmt *parse_var(struct parser_helper *helper) {
     // case: var my_var;
     // skip all the checks
     if (assign_type == EXPR_LITERAL) {
-        return init_var_decl(assign, constant, type_tok);
+        return init_var_decl(assign, constant, type);
     }
 
     if (assign_type != EXPR_BINARY) {
@@ -314,7 +455,7 @@ static struct base_stmt *parse_var(struct parser_helper *helper) {
         return NULL;
     }
 
-    return init_var_decl(assign, constant, type_tok);
+    return init_var_decl(assign, constant, type);
 }
 
 static struct base_stmt *parse_while(struct parser_helper *helper) {
@@ -444,11 +585,35 @@ static struct base_stmt *parse_if(struct parser_helper *helper) {
 static struct base_stmt *parse_return(struct parser_helper *helper) {
     CONSUME_TOK(TOK_RETURN, "expected return");
     if (ACTUAL_TOK().type == TOK_SEMICOLON) {
+        ENSURE_SIZE();
         READ_TOK();
         return init_return_stmt(NULL);
     }
     struct base_expr *val = parse_expr_stmt(helper);
     return init_return_stmt(val);
+}
+
+static struct base_stmt *parse_asm(struct parser_helper *helper) {
+    CONSUME_TOK(TOK_ASM, "expected asm");
+    CONSUME_TOK(TOK_LEFT_BRACES, "expected {");
+
+    size_t count = 0;
+    int arr_size = ARRAY_FACTOR;
+    char **code = malloc(sizeof(char*) * arr_size);
+
+    while (ACTUAL_TOK().type != TOK_RIGHT_BRACES && ACTUAL_TOK().type != TOK_EXIT) {
+        if (ACTUAL_TOK().type != TOK_STRING) {
+            add_error(helper->errors, CREATE_ERROR("expected string", ACTUAL_TOK().line, ACTUAL_TOK().char_pos));
+            return NULL;
+        }
+        add_toarray(&code, &arr_size, &count, ACTUAL_TOK().val);
+        ENSURE_SIZE();
+        READ_TOK();
+    }   
+
+    CONSUME_TOK(TOK_RIGHT_BRACES, "expected }");
+
+    return init_asm(code, count);
 }
 
 static struct base_stmt **parse_statements(struct parser_helper *helper, int *count) {
@@ -465,6 +630,13 @@ static struct base_stmt **parse_statements(struct parser_helper *helper, int *co
                 struct base_stmt *ifs = parse_if(helper);
                 if (ifs == NULL) return NULL;
                 add_toarray(&statements, &arr_size, count, ifs); 
+                break;
+            }
+            case TOK_ASM:
+            {
+                struct base_stmt *asms = parse_asm(helper);
+                if (asms == NULL) return NULL;
+                add_toarray(&statements, &arr_size, count, asms);
                 break;
             }
             case TOK_LEFT_BRACES:
@@ -505,7 +677,9 @@ static struct base_stmt **parse_statements(struct parser_helper *helper, int *co
             }
             case TOK_RETURN:
             {
-                add_toarray(&statements, &arr_size, count, parse_return(helper));
+                struct base_stmt *ret = parse_return(helper);
+                if (ret == NULL) return NULL;
+                add_toarray(&statements, &arr_size, count, ret);
                 break;
             }
             case TOK_EXIT:
@@ -561,6 +735,17 @@ static struct function_arg *parse_fn_arguments(struct parser_helper *helper, int
                 return NULL;
             }
 
+            int array_dim = 0;
+            struct token_val tok = ACTUAL_TOK();
+
+            while (tok.type == TOK_LEFT_BRACKETS) {
+                ENSURE_SIZE();
+                READ_TOK();
+                CONSUME_TOK(TOK_RIGHT_BRACKETS, "expected ]");
+                tok = ACTUAL_TOK();
+                array_dim++;
+            }       
+
             ENSURE_SIZE();
             struct token_val iden_val = READ_TOK();
             if (iden_val.type != TOK_IDENTIFIER) {
@@ -568,7 +753,7 @@ static struct function_arg *parse_fn_arguments(struct parser_helper *helper, int
                 return NULL;
             }
 
-            struct function_arg arg = { tok_type, iden_val };
+            struct function_arg arg = { tok_type, iden_val, array_dim };
             arguments[(*argument_count)++] = arg;
 
         } while (READ_TOK().type == TOK_COMMA);
@@ -584,12 +769,7 @@ static struct function_arg *parse_fn_arguments(struct parser_helper *helper, int
 static struct function *parse_function(struct parser_helper *helper) {
 
     ENSURE_SIZE();
-    struct token_val type_tok = READ_TOK();
-
-    if (type_tok.type != TOK_IDENTIFIER) {
-        add_error(helper->errors, CREATE_ERROR("expected type", type_tok.line, type_tok.char_pos));
-        return NULL;
-    }
+    struct prlang_type *type = parse_type(helper);
 
     ENSURE_SIZE();
     struct token_val name = READ_TOK();
@@ -606,7 +786,7 @@ static struct function *parse_function(struct parser_helper *helper) {
 
     struct block *body = parse_block(helper);
     
-    return init_function(body, name, type_tok, arguments, argument_count);
+    return init_function(body, name, type, arguments, argument_count);
 }
 
 // PARSE CLASS

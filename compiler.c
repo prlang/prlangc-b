@@ -43,6 +43,20 @@ void compile(char* src_dir, char* src_name, struct compiler_opt options) {
     }
 
 
+    if (options.debug) {
+        printf("[INFO] Debugging elements:\n");
+        
+        printf("\nLexer Debug:\n");
+        debug_lexer(&lex);
+
+        printf("\nAST Debug:\n");
+        char prefix[DEBUG_LIMIT];
+        prefix[0] = '\0';
+        struct astnode_debug debug = init_debug(prefix);
+        debug_prlang(root, &debug);
+    }
+
+
     struct symbol_table table = init_symbol_table();
     struct semantic_context ctx = init_semantic(&table, &errors);
 
@@ -72,6 +86,8 @@ void compile(char* src_dir, char* src_name, struct compiler_opt options) {
 
     struct prlang_codegen gen = init_codegen(src_dir, "output.asm", &ctx); 
     prlang_codegen(root, &gen);
+
+    printf("[INFO] Finished assembly generation\n");
 
     free_codegen(gen);
     free_prlang(root);

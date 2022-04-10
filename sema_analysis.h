@@ -10,9 +10,17 @@
 #define INT_OFFSET 4
 #define CHAR_OFFSET 1
 
+struct semantic_type {
+    int id;
+    int offset;
+};
+
 // TODO: check main function
 // global context
 struct semantic_context {
+    // used for runtime type checking generation <string, semantic_type>
+    struct symbol_hash types;
+    int type_id;
     struct symbol_table *table;
     struct errors *err;
     // used to check break and continue
@@ -20,6 +28,7 @@ struct semantic_context {
     // used to check actual type being processed
     char *type;
     char *actual_type;
+    int array_dim;
     // used to check the code inside methods
     struct class_table *actual;
     // the next two values are used for checking class member access
@@ -40,6 +49,8 @@ struct semantic_context {
 
 struct semantic_context init_semantic(struct symbol_table *table, struct errors *err);
 void free_semantic(struct semantic_context *ctx);
+
+int get_offset(struct semantic_context *ctx, char *type);
 
 void prlang_semapass(struct prlang_file *node, struct semantic_context *ctx);
 
