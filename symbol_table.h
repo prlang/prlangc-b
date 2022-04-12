@@ -3,6 +3,8 @@
 
 #include <stdbool.h>
 
+#include "ast.h"
+
 #define CREATE_SYMBOL(type, depth) ((struct symbol_val) { type, depth })
 
 // TODO: change this implementation to a "class"
@@ -38,6 +40,11 @@ struct fun_table {
     int total_pos_offset;
 };
 
+struct fun_hash {
+    struct fun_table *table;
+    struct function *fun;
+};
+
 struct class_table {
     struct symbol_hash methods;
     struct symbol_hash methods_code;
@@ -53,8 +60,6 @@ struct symbol_table {
     // classes
     // map <char*, class_table*>
     struct symbol_hash classes;
-    // the actual code (TODO: change this to one hashtable)
-    struct symbol_hash funcs_code;
 };
 
 struct symbol_table init_symbol_table();

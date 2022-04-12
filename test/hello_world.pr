@@ -52,10 +52,9 @@ void main(int a, int b) {
     var int[][] arr = new int[3][];
     arr[2] = new int[5];
     arr[2][2] = 7;
-    var int max = arr[2][2] + 51;
     writeInt(get_length(arr[2]));
-    for (var int le = 0 ; le < max ;) {
-        writeInt(le++);
+    for (var int le = 0 ; le < arr[2][2] ; le++) {
+        writeInt(le);
     }
     return;
 }

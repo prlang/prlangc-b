@@ -377,7 +377,8 @@ int codegen_call(struct call_expr *node, struct prlang_codegen *gen) {
         }
     }
     if (node->val->type == EXPR_LITERAL) {
-        struct fun_table *table = get(&gen->ctx->table->funcs_code, node->val->as.val.val, 0, node->arg_count);
+        struct fun_hash *hash = get(&gen->ctx->table->funcs, node->val->as.val.val, 0, node->arg_count);
+        struct fun_table *table = hash->table;
         if (table->total_pos_offset != 0) {
             fprintf(gen->file,
                 "   call %s\n"
@@ -714,7 +715,8 @@ void codegen_fun(struct function *node, struct prlang_codegen *gen) {
         "   mov rbp, rsp\n"
     );
 
-    gen->ctx->actual_fun = get(&gen->ctx->table->funcs_code, node->name.val, 0, node->arg_count);
+    struct fun_hash *hash = get(&gen->ctx->table->funcs, node->name.val, 0, node->arg_count);
+    gen->ctx->actual_fun = hash->table;
 
     fprintf(gen->file,
         "   sub rsp, %d\n",

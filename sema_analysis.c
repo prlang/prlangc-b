@@ -135,6 +135,8 @@ static void chk_type_replace_class(struct semantic_context *ctx, char *val, int 
     CLOSE_ACCESS();
 }
 
+static void sema_pass_expr(struct base_expr *node, struct semantic_context *ctx);
+
 static void sema_pass_literal(struct token_val node, struct semantic_context *ctx) {
     if (node.type == TOK_IDENTIFIER) {
         void *val;
@@ -172,7 +174,37 @@ static void sema_pass_literal(struct token_val node, struct semantic_context *ct
         // just a function call
         if (ctx->call) {
             if ((val = get(&ctx->table->funcs, node.val, 0, ctx->call->arg_count)) != NULL) {
-                struct function *tmp_fun = (struct function*) val;
+                struct function *tmp_fun = ((struct fun_hash*) val)->fun;
+                if (tmp_fun->arg_count != ctx->call->arg_count) {
+                    add_error(ctx->err, CREATE_ERROR("argument count doesn't match", node.line, node.char_pos));
+                    chk_type_replace(ctx, tmp_fun->type->type.val, tmp_fun->type->array_dim, node.line, node.char_pos);
+                    return;
+                }
+
+                bool tmp_acc = ctx->accessing;
+                char *tmp_type = ctx->access_type;
+                struct call_expr *tmp_call = ctx->call; 
+                struct class_table *tmp_table = ctx->actual;
+                int tmp_dim = ctx->array_dim;
+                ctx->array_dim = 0;
+                ctx->accessing = false;
+                ctx->access_type = NULL;
+                ctx->actual = NULL;
+                ctx->call = NULL;
+
+                for (int i = 0 ; i < tmp_fun->arg_count ; i++) {
+                    sema_pass_expr(tmp_call->arguments[i], ctx);
+                    if (strcmp(tmp_fun->arguments[i].type.val, ctx->actual_type) != 0 || tmp_fun->arguments[i].array_dim != ctx->array_dim) {
+                        add_error(ctx->err, CREATE_ERROR("argument type doesn't match", node.line, node.char_pos));
+                    }
+                }
+                // restore data
+                ctx->array_dim = tmp_dim;
+                ctx->actual = tmp_table;
+                ctx->call = tmp_call;
+                ctx->accessing = tmp_acc;
+                ctx->access_type = tmp_type;
+                
                 chk_type_replace(ctx, tmp_fun->type->type.val, tmp_fun->type->array_dim, node.line, node.char_pos);
                 return;
             }
@@ -203,8 +235,6 @@ static void sema_pass_literal(struct token_val node, struct semantic_context *ct
         ctx->actual_type = "string";
     }
 }
-
-static void sema_pass_expr(struct base_expr *node, struct semantic_context *ctx);
 
 static void sema_pass_cons(struct base_expr *node, struct semantic_context *ctx) {
     if (node->type == EXPR_ARRAY) {
@@ -608,18 +638,20 @@ static void prlang_class_definitions_semapass(struct prlang_file *node, struct s
 
 static void prlang_fun_definitions_semapass(struct prlang_file *node, struct semantic_context *ctx) {
     for (int i = 0 ; i < node->function_cnt ; i++) {
+        struct fun_hash *hash = malloc(sizeof(struct fun_hash));
         struct function *fun = (struct function*) node->functions[i];
         if (contains(&ctx->table->funcs, fun->name.val, 0, fun->arg_count)) {
             add_error(ctx->err, CREATE_ERROR("function already defined", fun->name.line, fun->name.char_pos));
             continue;
         }
         sema_pass_fun_args(fun, ctx);
-        put(&ctx->table->funcs, fun->name.val, fun, 0, fun->arg_count);
+        hash->fun = fun;
+        put(&ctx->table->funcs, fun->name.val, hash, 0, fun->arg_count);
     }
 }
 
 void prlang_semapass(struct prlang_file *node, struct semantic_context *ctx) {
-    // THIS JUST ADD TOP LEVEL DEFINITIONS
+    // THIS JUST ADD TOP LEVEL DEFINITIONS (remember!! temporal solution)
     // add classes
     prlang_class_definitions_semapass(node, ctx);
     // add functions
@@ -635,17 +667,21 @@ void prlang_semapass(struct prlang_file *node, struct semantic_context *ctx) {
 
     // check functions
     for (int i = 0 ; i < node->function_cnt ; i++) {
-        struct fun_table *fn = malloc(sizeof(struct fun_table));
-        if (contains(&ctx->table->funcs_code, node->functions[i]->name.val, 0, node->functions[i]->arg_count)) {
-            free(fn);
-            continue;
+        struct fun_table *table = malloc(sizeof(struct fun_table));
+        struct fun_hash *hash = get(&ctx->table->funcs, node->functions[i]->name.val, 0, node->functions[i]->arg_count);
+        // temporal
+        if (!hash) {
+            printf("UNEXPECTED ERROR");
+            exit(1);
         }
-        fn->symbols = init_symbol_hash();
-        ctx->actual_fun = fn;
+        table->symbols = init_symbol_hash();
+        ctx->actual_fun = table;
         ctx->return_type = node->functions[i]->type->type.val;
-        put(&ctx->table->funcs_code, node->functions[i]->name.val, fn, 0, node->functions[i]->arg_count);
+        hash->table = table;
+
         sema_pass_fun(node->functions[i], ctx);
-        fn->total_offset = ctx->actual_offset;
+
+        table->total_offset = ctx->actual_offset;
         ctx->actual_offset = 0;
     }
     ctx->return_type = NULL;

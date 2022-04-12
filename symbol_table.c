@@ -6,7 +6,6 @@
 
 struct symbol_table init_symbol_table() {
     struct symbol_table sym;
-    sym.funcs_code = init_symbol_hash();
     sym.classes = init_symbol_hash();
     sym.global = init_symbol_hash();
     sym.funcs = init_symbol_hash();
