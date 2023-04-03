@@ -44,9 +44,9 @@ enum stmt_type {
 };
 
 enum access_modifier {
-    PUBLIC_MOD,
     PRIVATE_MOD,
-    PROTECTED_MOD
+    PROTECTED_MOD,
+    PUBLIC_MOD
 };
 
 // used at bytecode generation

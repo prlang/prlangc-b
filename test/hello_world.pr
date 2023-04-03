@@ -44,6 +44,13 @@ void writeInt(int val) {
     return;
 }
 
+// class wtf {
+ //   public var int a;
+ //   public int letsgo() {
+ //       return this.a;
+ //   }
+//}
+
 int get_length(int[] arr) {
     return arr.length;
 }

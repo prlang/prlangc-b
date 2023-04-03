@@ -1,4 +1,5 @@
 .vscode
+.git
 /build
 /builddir
 local.sh
@@ -7,3 +8,4 @@ __pycache__
 *.o
 *.asm
 output
+/test

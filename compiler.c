@@ -84,10 +84,19 @@ void compile(char* src_dir, char* src_name, struct compiler_opt options) {
         debug_prlang(root, &debug);
     }
 
-    struct prlang_codegen gen = init_codegen(src_dir, "output.asm", &ctx); 
+    char output_name[strlen(src_name) + 2];
+    output_name[strlen(src_name) + 1] = '\0';
+    strncpy(output_name, src_name, strlen(src_name) - 2);
+    output_name[strlen(src_name) - 2] = 'a';
+    output_name[strlen(src_name) - 1] = 's';
+    output_name[strlen(src_name)] = 'm';
+
+    struct prlang_codegen gen = init_codegen(src_dir, output_name, &ctx); 
     prlang_codegen(root, &gen);
 
     printf("[INFO] Finished assembly generation\n");
+    printf("%s\n", src_name);
+    printf("%s\n", output_name);
 
     free_codegen(gen);
     free_prlang(root);

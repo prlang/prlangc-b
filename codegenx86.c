@@ -246,6 +246,7 @@ static int codegen_binary_expr(struct binary_expr *node, struct prlang_codegen *
                 );
             }
         }
+
         return reg;
     }
     int left = codegen_expr(node->left, gen);
@@ -318,9 +319,27 @@ int codegen_array_cons(struct array_access *node, struct prlang_codegen *gen) {
     return 6;
 }
 
+int codegen_class_cons(struct call_expr *node, struct prlang_codegen *gen) {
+    fprintf(gen->file,
+        "   ; init constructor\n"
+    );
+
+    struct class_table *table = get(&gen->ctx->table->classes, node->val->as.val.val, 0, 0);
+    
+    fprintf(gen->file,
+        "   mov edi, %d\n"
+        "   call alloc_lang\n",
+        table->size
+    );
+
+    return 6;
+}
+
 int codegen_cons(struct base_expr *node, struct prlang_codegen *gen) {
     if (node->type == EXPR_ARRAY) {
         return codegen_array_cons(node->as.arr, gen);
+    } else if (node->type == EXPR_CALL) {
+        return codegen_class_cons(node->as.call, gen);
     }
 }
 

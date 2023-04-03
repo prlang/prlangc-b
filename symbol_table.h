@@ -45,11 +45,18 @@ struct fun_hash {
     struct function *fun;
 };
 
+struct fun_member_det {
+    struct function *fun;
+    struct fun_table *table;
+    int offset;
+    char modifier;
+};
+
 struct class_table {
     struct symbol_hash methods;
-    struct symbol_hash methods_code;
     struct symbol_hash properties;
     int size;
+    char *class_name;
 };
 
 struct symbol_table {

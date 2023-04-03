@@ -29,8 +29,6 @@ struct semantic_context {
     char *type;
     char *actual_type;
     int array_dim;
-    // used to check the code inside methods
-    struct class_table *actual;
     // the next two values are used for checking class member access
     // example: value.getFoo().getBar(); or value.foo.bar
     bool accessing;
@@ -42,9 +40,12 @@ struct semantic_context {
 
     struct fun_table *actual_fun;
     char *return_type;
+    int return_dim;
     // for assembly generation
     int actual_offset;
     int actual_depth;
+    // used to check the code inside methods
+    struct class_table *actual_class;
 };
 
 struct semantic_context init_semantic(struct symbol_table *table, struct errors *err);
